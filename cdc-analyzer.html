@@ -1278,12 +1278,18 @@ Example message types this tool can parse:
             parseCellId(cellId) {
                 // Parse 3GPP cell ID format: MCC (3) + MNC (2-3) + LAC/TAC (4-5 hex) + Cell ID (7-8 hex)
                 // Example: 311480550414df40c
+                // For LTE: Cell ID = (eNodeB ID * 256) + Sector ID
                 const result = {
                     fullCellId: cellId,
                     mcc: null,
                     mnc: null,
-                    lac: null,
-                    cellId: null
+                    lac: null,      // TAC for LTE
+                    cellId: null,   // Full cell ID in hex
+                    cellIdDecimal: null,
+                    eNodeBId: null, // For LTE: tower identifier
+                    sectorId: null, // For LTE: sector (0-255)
+                    tacDecimal: null,
+                    networkType: null
                 };
 
                 if (cellId.length >= 15) {
@@ -1293,6 +1299,25 @@ Example message types this tool can parse:
                     const tacAndCell = cellId.substring(6);
                     result.lac = tacAndCell.substring(0, 4);
                     result.cellId = tacAndCell.substring(4);
+
+                    // Convert to decimal and extract eNodeB/sector
+                    if (result.cellId) {
+                        result.cellIdDecimal = parseInt(result.cellId, 16);
+                        // LTE cell ID format: eNodeB ID (20 bits) + Sector ID (8 bits)
+                        result.eNodeBId = Math.floor(result.cellIdDecimal / 256);
+                        result.sectorId = result.cellIdDecimal % 256;
+                    }
+
+                    if (result.lac) {
+                        result.tacDecimal = parseInt(result.lac, 16);
+                    }
+
+                    // Determine network type based on cell ID length
+                    if (result.cellId && result.cellId.length >= 7) {
+                        result.networkType = 'LTE/5G';
+                    } else {
+                        result.networkType = '3G/2G';
+                    }
                 }
 
                 return result;
@@ -1849,14 +1874,42 @@ Example message types this tool can parse:
                                 ` : ''}
                                 ${loc.parsed?.cellId ? `
                                 <div class="cell-detail">
-                                    <label>Cell ID</label>
+                                    <label>Cell ID (hex)</label>
                                     <span>${loc.parsed.cellId}</span>
+                                    ${loc.parsed.cellId ? `<small style="display: block; color: var(--text-muted);">Decimal: ${parseInt(loc.parsed.cellId, 16)}</small>` : ''}
+                                </div>
+                                ` : ''}
+                                ${loc.parsed?.cellId ? `
+                                <div class="cell-detail">
+                                    <label>eNodeB ID</label>
+                                    <span>${Math.floor(parseInt(loc.parsed.cellId, 16) / 256)}</span>
+                                    <small style="display: block; color: var(--text-muted);">Sector: ${parseInt(loc.parsed.cellId, 16) % 256}</small>
                                 </div>
                                 ` : ''}
                                 <div class="cell-detail">
                                     <label>Full Cell ID String</label>
                                     <span style="font-size: 0.8rem;">${loc.parsed?.fullCellId || 'N/A'}</span>
                                 </div>
+                            </div>
+                            ${loc.parsed?.mcc && loc.parsed?.mnc && loc.parsed?.cellId ? `
+                            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                                <strong style="font-size: 0.85rem; color: var(--text-muted);">CELL SITE LOOKUP:</strong>
+                                <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px;">
+                                    <a href="https://www.cellmapper.net/map?MCC=${loc.parsed.mcc}&MNC=${loc.parsed.mnc}&type=LTE&latitude=40&longitude=-74&zoom=10&showTowers=true&showTowerLabels=true&clusterEnabled=true&tilesEnabled=true&showOrphans=false&showNoFrequency498=false&showFrequency498=false&showBand498=false&mapType=undefined&showHex=false&showVerifiedOnly=false&showUnverifiedOnly=false&showLTE498=true&showENDC498=false&showNR498=false&new498=false&libertyUnited=false&oldState=false&blinds498=&history498=&tower=${Math.floor(parseInt(loc.parsed.cellId, 16) / 256)}" target="_blank" style="display: inline-block; padding: 8px 16px; background: #3182ce; color: white; text-decoration: none; border-radius: 4px; font-size: 0.85rem;">
+                                        CellMapper Lookup
+                                    </a>
+                                    <a href="https://opencellid.org/#zoom=14&lat=40&lon=-74" target="_blank" style="display: inline-block; padding: 8px 16px; background: #48bb78; color: white; text-decoration: none; border-radius: 4px; font-size: 0.85rem;">
+                                        OpenCellID
+                                    </a>
+                                    <button onclick="copyToClipboard('MCC: ${loc.parsed.mcc}, MNC: ${loc.parsed.mnc}, TAC: ${parseInt(loc.parsed.lac, 16)}, CellID: ${parseInt(loc.parsed.cellId, 16)}, eNodeB: ${Math.floor(parseInt(loc.parsed.cellId, 16) / 256)}')" style="padding: 8px 16px; background: #718096; color: white; border: none; border-radius: 4px; font-size: 0.85rem; cursor: pointer;">
+                                        Copy Cell Info
+                                    </button>
+                                </div>
+                                <p style="margin-top: 10px; font-size: 0.8rem; color: var(--text-muted);">
+                                    <strong>For carrier tower location:</strong> Submit a formal request to the carrier with the eNodeB ID (${Math.floor(parseInt(loc.parsed.cellId, 16) / 256)}) for exact coordinates.
+                                </p>
+                            </div>
+                            ` : ''}
                             </div>
                         </div>
                     `;
@@ -2046,6 +2099,21 @@ Example message types this tool can parse:
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Cell info copied to clipboard!');
+            }).catch(err => {
+                // Fallback for older browsers
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('Cell info copied to clipboard!');
+            });
         }
 
         function getMNCCarrier(mcc, mnc) {

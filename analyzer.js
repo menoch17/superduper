@@ -573,6 +573,8 @@ function analyzeCDC() {
         });
 
         document.getElementById('callSelectorContainer').style.display = 'flex';
+        const preferredId = choosePreferredCallId(currentAnalyzer.calls);
+        if (preferredId) selector.value = preferredId;
         switchCall(selector.value);
     } catch (err) {
         console.error("Analysis failed:", err);
@@ -584,6 +586,26 @@ function switchCall(callId) {
     if (!currentAnalyzer) return;
     const call = currentAnalyzer.calls.get(callId);
     displayResults(call, currentAnalyzer);
+}
+
+function choosePreferredCallId(calls) {
+    if (!calls || calls.size === 0) return null;
+    let bestId = null;
+    let bestScore = -Infinity;
+    for (const [id, call] of calls) {
+        let score = 0;
+        if (call.startTime) score += 3;
+        if (call.callingParty?.phoneNumber) score += 4;
+        if (call.callerName) score += 1;
+        if (call.callStatus === 'Answered') score += 1;
+        if (call.answerTime) score += 2;
+        if (call.endTime) score += 1;
+        if (score > bestScore) {
+            bestScore = score;
+            bestId = id;
+        }
+    }
+    return bestId || calls.keys().next().value;
 }
 
 function displayResults(call, analyzer) {

@@ -555,21 +555,35 @@ function analyzeCDC() {
         currentAnalyzer = new CDCAnalyzer(input);
         currentAnalyzer.parse();
 
+        const selector = document.getElementById('callSelector');
+        selector.innerHTML = '';
+
         if (currentAnalyzer.calls.size === 0) {
             alert("No recognizable CDC messages found. Check your data format.");
             return;
         }
 
-        const firstCallEntry = currentAnalyzer.calls.values().next();
-        if (firstCallEntry.done || !firstCallEntry.value) {
-            alert("No recognizable CDC messages found. Check your data format.");
-            return;
-        }
-        displayResults(firstCallEntry.value, currentAnalyzer);
+        currentAnalyzer.calls.forEach((call, id) => {
+            const option = document.createElement('option');
+            option.value = id;
+            const time = call.startTime ? currentAnalyzer.formatTimestamp(call.startTime) : 'No Start Time';
+            const parties = `${call.callingParty.phoneNumber || 'Unknown'} -> ${call.calledParty.phoneNumber || 'Unknown'}`;
+            option.textContent = `[${call.callType}] ${time} | ${parties}`;
+            selector.appendChild(option);
+        });
+
+        document.getElementById('callSelectorContainer').style.display = 'flex';
+        switchCall(selector.value);
     } catch (err) {
         console.error("Analysis failed:", err);
         alert("An error occurred during analysis. Check the console for details.");
     }
+}
+
+function switchCall(callId) {
+    if (!currentAnalyzer) return;
+    const call = currentAnalyzer.calls.get(callId);
+    displayResults(call, currentAnalyzer);
 }
 
 function displayResults(call, analyzer) {
@@ -581,8 +595,6 @@ function displayResults(call, analyzer) {
         leafletMap = null;
         window.map = null;
     }
-    const reportControls = document.getElementById('reportControls');
-    if (reportControls) reportControls.style.display = 'flex';
 
     let html = '';
 
@@ -1028,11 +1040,8 @@ function exportCSV() {
 
 function clearAll() {
     document.getElementById('cdcInput').value = '';
+    document.getElementById('callSelectorContainer').style.display = 'none';
     document.getElementById('callDetails').innerHTML = '';
-    const reportControls = document.getElementById('reportControls');
-    if (reportControls) reportControls.style.display = 'none';
-    const resultsContainer = document.getElementById('resultsContainer');
-    if (resultsContainer) resultsContainer.classList.remove('active');
 }
 
 function loadSample() {

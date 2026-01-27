@@ -944,11 +944,11 @@ function initMap(locations) {
             markers.push(marker);
             if (tower) {
                 try {
-                    const sectorLayer = createSectorLayer(tower, lat, lng);
-                    if (sectorLayer) {
-                        sectorLayer.addTo(map);
-                        sectorLayers.push(sectorLayer);
-                    }
+            const sectorLayer = createSectorLayer(tower, lat, lng);
+            if (sectorLayer) {
+                sectorLayer.addTo(map);
+                sectorLayers.push(sectorLayer);
+            }
                 } catch (err) {
                     console.error("Sector layer render failed", err);
                 }
@@ -974,7 +974,12 @@ function createSectorLayer(tower, lat, lng) {
     const polygonPoints = buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters);
     if (polygonPoints.length < 3) return null;
 
-    const layer = L.polygon(polygonPoints, {
+    const tooltipLines = [];
+    if (tower.sectorName) tooltipLines.push(tower.sectorName);
+    tooltipLines.push(`Azimuth: ${azimuth.toFixed(0)}°`);
+    tooltipLines.push(`Beam: ${beamWidth.toFixed(0)}°`);
+
+    const polygon = L.polygon(polygonPoints, {
         color: '#2b6cb0',
         fillColor: '#2b6cb0',
         fillOpacity: 0.12,
@@ -982,12 +987,22 @@ function createSectorLayer(tower, lat, lng) {
         dashArray: '6',
         interactive: false
     });
-    const tooltipLines = [];
-    if (tower.sectorName) tooltipLines.push(tower.sectorName);
-    tooltipLines.push(`Azimuth: ${azimuth.toFixed(0)}°`);
-    tooltipLines.push(`Beam: ${beamWidth.toFixed(0)}°`);
-    layer.bindTooltip(tooltipLines.join(' | '), { permanent: false, direction: 'top' });
-    return layer;
+    polygon.bindTooltip(tooltipLines.join(' | '), { permanent: false, direction: 'top' });
+
+    const arcPoints = buildSectorArc(lat, lng, azimuth, beamWidth, radiusMeters);
+    const layerGroup = L.layerGroup([polygon]);
+
+    if (arcPoints.length > 0) {
+        const arcLayer = L.polyline(arcPoints, {
+            color: '#2b6cb0',
+            weight: 2,
+            dashArray: '8,4',
+            opacity: 0.85
+        });
+        layerGroup.addLayer(arcLayer);
+    }
+
+    return layerGroup;
 }
 
 function buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters) {
@@ -1007,6 +1022,22 @@ function buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters) {
     // Close the cone by returning to center
     points.unshift([lat, lng]);
     points.push([lat, lng]);
+    return points;
+}
+
+function buildSectorArc(lat, lng, azimuth, beamWidth, radiusMeters) {
+    const points = [];
+    const normalizedBeam = Math.max(5, Math.min(beamWidth, 180));
+    const stepCount = Math.max(12, Math.ceil(Math.abs(normalizedBeam) / 5));
+    const halfBeam = normalizedBeam / 2;
+    for (let i = 0; i <= stepCount; i++) {
+        const offset = (i / stepCount) * normalizedBeam;
+        const angle = (azimuth - halfBeam + offset + 360) % 360;
+        const dest = destinationPoint(lat, lng, radiusMeters, angle);
+        if (dest && Number.isFinite(dest.lat) && Number.isFinite(dest.lon)) {
+            points.push([dest.lat, dest.lon]);
+        }
+    }
     return points;
 }
 

@@ -1079,53 +1079,6 @@ function clearAll() {
     document.getElementById('callDetails').innerHTML = '';
 }
 
-function loadSample() {
-    document.getElementById('cdcInput').value = `termAttempt
-T1.678 Version 4
-   laesMessage
-      termAttempt
-         caseId = CASE-2025-001
-         timestamp = 20250604035420.132Z
-         callId
-            main = 003A1486D04F061E
-         calling
-            uri[0] = sip:+16313841232@msg.pc.t-mobile.com
-            sipHeader[2] = P-Asserted-Identity: "JOHN DOE" <sip:+16313841232;verstat=TN-Validation-Passed@msg.pc.t-mobile.com>
-         called
-            uri[0] = tel:+16313754560;rn=+16315996100
-
-directSignalReporting
-T1.678 Version 4
-    laesMessage
-        directSignalReporting
-            timestamp = 20250604035421.500Z
-            callId = 003A1486D04F061E
-            sigMsg = 
-INVITE sip:+16313754560@msg.pc.t-mobile.com SIP/2.0
-User-Agent: APPLE---iPhone15---17.5.1
-P-Access-Network-Info: 3GPP-UTRAN-FDD;utran-cell-id-3gpp=311480550414df40c
-
-directSignalReporting
-T1.678 Version 4
-    laesMessage
-        directSignalReporting
-            timestamp = 20250604035422.200Z
-            callId = 003A1486D04F061E
-            sigMsg = 
-SIP/2.0 180 Ringing
-
-smsMessage
-T1.678 Version 4
-    laesMessage
-        smsMessage
-            caseId = CASE-2025-001
-            timestamp = 20250604041000.000Z
-            originator = +16313841232
-            recipient = +16313754560
-            userInput = See you there at 5pm.
-            originating`;
-}
-
 function handleTowerUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1465,7 +1418,6 @@ function switchTab(tabId) {
 window.analyzeCDC = analyzeCDC;
 window.switchCall = switchCall;
 window.clearAll = clearAll;
-window.loadSample = loadSample;
 window.exportCSV = exportCSV;
 window.handleTowerUpload = handleTowerUpload;
 window.toggleSettings = toggleSettings;

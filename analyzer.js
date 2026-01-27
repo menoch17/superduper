@@ -900,7 +900,7 @@ function parseTowerCSV(text) {
 
     const colIdx = {
         lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
-        cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
+        cid: headers.findIndex(h => h === 'cgi' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
         lat: headers.findIndex(h => h === 'lat' || h.includes('latitude') || h === 'y' || h === 'site_latitude' || h === 'sector_latitude'),
         lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x' || h === 'site_longitude' || h === 'sector_longitude'),
         address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
@@ -910,7 +910,7 @@ function parseTowerCSV(text) {
 
     // If we can't find core columns, fail
     if (colIdx.lac === -1 || colIdx.cid === -1) {
-        console.error("CSV Missing LAC or CID columns. Detected headers:", headers);
+        console.error("CSV Missing LAC or CID/CGI columns. Detected headers:", headers);
         return 0;
     }
 
@@ -939,6 +939,12 @@ function parseTowerCSV(text) {
             });
             loadedCount++;
         }
+    }
+
+    // Update UI status to show both total rows and unique towers
+    const status = document.getElementById('towerStatus');
+    if (status) {
+        status.innerHTML = `<span style="color: var(--success-color);">✓ ${loadedCount} rows parsed (${towerDatabase.size} unique towers)</span>`;
     }
 
     return loadedCount;

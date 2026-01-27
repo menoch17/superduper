@@ -990,11 +990,32 @@ async function syncTowersFromCloud() {
     syncBtn.disabled = true;
 
     try {
-        const { data, error } = await supabaseClient.from('towers').select('*');
-        if (error) throw error;
+        let allData = [];
+        let from = 0;
+        let to = 999;
+        let hasMore = true;
+        const towerStatus = document.getElementById('towerStatus');
 
-        if (data && data.length > 0) {
-            data.forEach(row => {
+        while (hasMore) {
+            towerStatus.textContent = `Syncing towers... (${allData.length} loaded)`;
+            const { data, error } = await supabaseClient
+                .from('towers')
+                .select('*')
+                .range(from, to);
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                from += 1000;
+                to += 1000;
+            } else {
+                hasMore = false;
+            }
+        }
+
+        if (allData.length > 0) {
+            allData.forEach(row => {
                 const key = `${row.lac}-${row.cid}`;
                 towerDatabase.set(key, {
                     lat: row.lat,
@@ -1005,14 +1026,14 @@ async function syncTowersFromCloud() {
                 });
             });
 
-            document.getElementById('towerStatus').innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${data.length} towers synced from Cloud</span>`;
-            console.log(`Synced ${data.length} towers from Supabase.`);
+            towerStatus.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${allData.length} towers synced from Cloud</span>`;
+            console.log(`Synced ${allData.length} towers from Supabase.`);
 
             if (currentAnalyzer) {
                 analyzeCDC();
             }
         } else {
-            document.getElementById('towerStatus').textContent = "No towers found in cloud.";
+            towerStatus.textContent = "No towers found in cloud.";
         }
     } catch (e) {
         console.error("Cloud sync failed:", e);
@@ -1036,14 +1057,15 @@ async function uploadTowersToCloud() {
     }
 
     const uploadBtn = document.getElementById('uploadBtn');
+    const towerStatus = document.getElementById('towerStatus');
     uploadBtn.textContent = "Uploading...";
     uploadBtn.disabled = true;
 
     try {
-        const rows = [];
+        const allRows = [];
         towerDatabase.forEach((val, key) => {
             const [lac, cid] = key.split('-');
-            rows.push({
+            allRows.push({
                 lac,
                 cid,
                 lat: val.lat,
@@ -1054,16 +1076,24 @@ async function uploadTowersToCloud() {
             });
         });
 
-        // Batch upsert (requires unique constraint on lac, cid in Supabase)
-        const { error } = await supabaseClient.from('towers').upsert(rows, { onConflict: 'lac,cid' });
+        const BATCH_SIZE = 500;
+        let uploaded = 0;
 
-        if (error) throw error;
+        for (let i = 0; i < allRows.length; i += BATCH_SIZE) {
+            const chunk = allRows.slice(i, i + BATCH_SIZE);
+            towerStatus.textContent = `Uploading chunk... (${i + chunk.length} / ${allRows.length})`;
 
-        alert(`Successfully uploaded ${rows.length} records to the cloud!`);
-        document.getElementById('towerStatus').innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ Cloud database updated (${rows.length} rows)</span>`;
+            const { error } = await supabaseClient.from('towers').upsert(chunk, { onConflict: 'lac,cid' });
+            if (error) throw error;
+
+            uploaded += chunk.length;
+        }
+
+        alert(`Successfully uploaded ${uploaded} records to the cloud!`);
+        towerStatus.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ Cloud database updated (${uploaded} rows)</span>`;
     } catch (e) {
         console.error("Cloud upload failed:", e);
-        alert("Cloud upload failed: " + e.message);
+        alert("Cloud upload failed: " + (e.message || "Unknown error"));
     } finally {
         uploadBtn.textContent = "Upload to Cloud";
         uploadBtn.disabled = false;

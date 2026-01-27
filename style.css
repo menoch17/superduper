@@ -234,45 +234,6 @@ button {
     font-weight: 600;
 }
 
-.standards-section {
-    margin-top: 25px;
-}
-
-.standards-section h3 {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 15px;
-}
-
-.standards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 18px;
-}
-
-.standards-card {
-    background: var(--card-bg);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    padding: 18px 20px;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
-}
-
-.standards-card h4 {
-    margin-bottom: 6px;
-    font-size: 1rem;
-    color: var(--primary-color);
-}
-
-.standards-description {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    margin-bottom: 10px;
-}
-
 .info-row {
     display: flex;
     justify-content: space-between;

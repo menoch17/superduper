@@ -739,9 +739,6 @@ function displayResults(call, analyzer) {
         </div>`;
     sections.push(createCollapsibleSection('Technical Message Timeline', techHTML, true, 'tech'));
 
-    const standardsContent = renderStandardsSection(call);
-    if (standardsContent) sections.push(createCollapsibleSection('Standards Intelligence', standardsContent, false, 'standards'));
-
     const rawHTML = `
         <div class="technical-section">
             <h3>Raw CDC Records</h3>
@@ -766,32 +763,6 @@ function displayResults(call, analyzer) {
         }
         if (call.locations.length > 0) initMap(call.locations);
     }, 100);
-}
-
-function renderStandardsSection(call) {
-    if (typeof CDC_STANDARDS === 'undefined') return '';
-    const activeTypes = new Set(call.messages.map(msg => msg.type));
-    const sections = [];
-
-    if (CDC_STANDARDS.T1_678) {
-        const card = createStandardCard(CDC_STANDARDS.T1_678, 'messageTypes', activeTypes);
-        if (card) sections.push(card);
-    }
-    if (CDC_STANDARDS.IMS) {
-        const card = createStandardCard(CDC_STANDARDS.IMS, 'eventTypes', activeTypes);
-        if (card) sections.push(card);
-    }
-
-    if (sections.length === 0) return '';
-
-    return `
-        <div class="standards-section">
-            <h3>Standards Intelligence</h3>
-            <div class="standards-grid">
-                ${sections.join('')}
-            </div>
-        </div>
-    `;
 }
 
 function createCollapsibleSection(title, content, isOpen = false, idSuffix = '') {
@@ -829,39 +800,6 @@ function setupCollapsibles() {
             }
         });
     });
-}
-
-function createStandardCard(standard, listKey, activeTypes) {
-    const entries = standard[listKey] || [];
-    if (entries.length === 0) return '';
-
-    const matched = entries.filter(entry => activeTypes.has(entry.id));
-    const recognized = matched.length ? matched.map(entry => entry.displayName || entry.id).join(', ') : 'No matching events parsed yet.';
-    const keywordsPool = [];
-    entries.forEach(entry => {
-        (entry.keywords || []).forEach(keyword => {
-            const trimmed = keyword?.trim();
-            if (trimmed) keywordsPool.push(trimmed);
-        });
-    });
-    const keywords = [...new Set(keywordsPool)]
-        .slice(0, 6)
-        .join(', ') || 'N/A';
-
-    return `
-        <div class="standards-card">
-            <h4>${standard.name}</h4>
-            <p class="standards-description">${standard.description}</p>
-            <div class="info-row">
-                <span class="info-label">Recognized Events</span>
-                <span class="info-value">${recognized}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Key Identifiers / Keywords</span>
-                <span class="info-value">${keywords}</span>
-            </div>
-        </div>
-    `;
 }
 
 function generateFlowMarkup(call, analyzer, baseTimestamp) {

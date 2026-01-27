@@ -5,6 +5,9 @@ class CDCAnalyzer {
         this.messages = [];
         this.calls = new Map(); // Grouped by callId
         this.currentCallId = null;
+        this.standardMessageTypes = this.loadStandardMessageTypes();
+        this.standardTypeKeywordSet = this.buildStandardTypeKeywordSet();
+        this.standardFieldAliases = this.getStandardFieldAliases();
     }
 
     parse() {
@@ -82,23 +85,9 @@ class CDCAnalyzer {
         const blocks = [];
         const lines = data.split('\n');
         let currentBlock = [];
-        const typeKeywords = new Set([
-            'termattempt',
-            'origattempt',
-            'directsignalreporting',
-            'ccopen',
-            'ccclose',
-            'answer',
-            'release',
-            'smsmessage',
-            'mmsmessage',
-            'ims_3gpp_voip_origination',
-            'ims_3gpp_voip_answer',
-            'ims_3gpp_voip_release',
-            'ims_3gpp_voip_directsignalreporting',
-            'ims_3gpp_voip_ccopen',
-            'ims_3gpp_voip_ccclose'
-        ]);
+        const typeKeywords = new Set(this.standardTypeKeywordSet || []);
+        typeKeywords.add('smsmessage');
+        typeKeywords.add('mmsmessage');
 
         for (const line of lines) {
             const trimmed = line.trim();
@@ -122,26 +111,14 @@ class CDCAnalyzer {
 
     detectMessageType(block) {
         const normalized = block.toLowerCase();
-        if (normalized.includes('ims_3gpp_voip_termattempt') || normalized.split('\n')[0].trim().toLowerCase() === 'termattempt') {
-            return 'termAttempt';
-        }
-        if (normalized.includes('ims_3gpp_voip_origination') || normalized.split('\n')[0].trim().toLowerCase() === 'origattempt') {
-            return 'origAttempt';
-        }
-        if (normalized.includes('ims_3gpp_voip_answer') || normalized.split('\n')[0].trim().toLowerCase() === 'answer') {
-            return 'answer';
-        }
-        if (normalized.includes('ims_3gpp_voip_release') || normalized.split('\n')[0].trim().toLowerCase() === 'release') {
-            return 'release';
-        }
-        if (normalized.includes('ims_3gpp_voip_directsignalreporting') || normalized.split('\n')[0].trim().toLowerCase() === 'directsignalreporting' || normalized.includes('directsignalreporting')) {
-            return 'directSignalReporting';
-        }
-        if (normalized.includes('ims_3gpp_voip_ccopen') || normalized.split('\n')[0].trim().toLowerCase() === 'ccopen') {
-            return 'ccOpen';
-        }
-        if (normalized.includes('ims_3gpp_voip_ccclose') || normalized.split('\n')[0].trim().toLowerCase() === 'ccclose') {
-            return 'ccClose';
+        for (const type of this.standardMessageTypes) {
+            if (!type?.keywords) continue;
+            for (const keyword of type.keywords) {
+                if (!keyword) continue;
+                if (normalized.includes(keyword.toLowerCase())) {
+                    return type.id;
+                }
+            }
         }
         if (normalized.includes('smsmessage')) return 'smsMessage';
         if (normalized.includes('mmsmessage')) return 'mmsMessage';
@@ -194,15 +171,38 @@ class CDCAnalyzer {
     }
 
     extractField(block, fieldName) {
-        const regex = new RegExp(`${fieldName}\\s*=\\s*(.+?)(?:\\n|$)`, 'i');
-        const match = block.match(regex);
-        return match ? match[1].trim() : null;
+        const aliases = this.standardFieldAliases[fieldName] || [fieldName];
+        for (const alias of aliases) {
+            const regex = new RegExp(`${alias}\\s*=\\s*(.+?)(?:\\n|$)`, 'i');
+            const match = block.match(regex);
+            if (match) return match[1].trim();
+        }
+        return null;
     }
 
     extractNestedField(block, parentField, childField) {
         const regex = new RegExp(`${parentField}[\\s\\S]*?${childField}\\s*=\\s*(.+?)(?:\\n|$)`, 'i');
         const match = block.match(regex);
         return match ? match[1].trim() : null;
+    }
+
+    loadStandardMessageTypes() {
+        return CDC_STANDARDS?.ALL_MESSAGE_TYPES ? [...CDC_STANDARDS.ALL_MESSAGE_TYPES] : [];
+    }
+
+    buildStandardTypeKeywordSet() {
+        const keywords = new Set();
+        for (const type of this.standardMessageTypes) {
+            if (!type?.keywords) continue;
+            for (const keyword of type.keywords) {
+                if (keyword) keywords.add(keyword.toLowerCase());
+            }
+        }
+        return keywords;
+    }
+
+    getStandardFieldAliases() {
+        return CDC_STANDARDS?.ALL_FIELD_ALIASES ? { ...CDC_STANDARDS.ALL_FIELD_ALIASES } : {};
     }
 
     parseAttemptMessage(block) {
@@ -714,6 +714,8 @@ function displayResults(call, analyzer) {
         </div>
     `;
 
+    html += renderStandardsSection(call);
+
     // Raw Records Section
     html += `
         <div class="technical-section">
@@ -739,6 +741,65 @@ function displayResults(call, analyzer) {
         }
         if (call.locations.length > 0) initMap(call.locations);
     }, 100);
+}
+
+function renderStandardsSection(call) {
+    if (typeof CDC_STANDARDS === 'undefined') return '';
+    const activeTypes = new Set(call.messages.map(msg => msg.type));
+    const sections = [];
+
+    if (CDC_STANDARDS.T1_678) {
+        const card = createStandardCard(CDC_STANDARDS.T1_678, 'messageTypes', activeTypes);
+        if (card) sections.push(card);
+    }
+    if (CDC_STANDARDS.IMS) {
+        const card = createStandardCard(CDC_STANDARDS.IMS, 'eventTypes', activeTypes);
+        if (card) sections.push(card);
+    }
+
+    if (sections.length === 0) return '';
+
+    return `
+        <div class="standards-section">
+            <h3>Standards Intelligence</h3>
+            <div class="standards-grid">
+                ${sections.join('')}
+            </div>
+        </div>
+    `;
+}
+
+function createStandardCard(standard, listKey, activeTypes) {
+    const entries = standard[listKey] || [];
+    if (entries.length === 0) return '';
+
+    const matched = entries.filter(entry => activeTypes.has(entry.id));
+    const recognized = matched.length ? matched.map(entry => entry.displayName || entry.id).join(', ') : 'No matching events parsed yet.';
+    const keywordsPool = [];
+    entries.forEach(entry => {
+        (entry.keywords || []).forEach(keyword => {
+            const trimmed = keyword?.trim();
+            if (trimmed) keywordsPool.push(trimmed);
+        });
+    });
+    const keywords = [...new Set(keywordsPool)]
+        .slice(0, 6)
+        .join(', ') || 'N/A';
+
+    return `
+        <div class="standards-card">
+            <h4>${standard.name}</h4>
+            <p class="standards-description">${standard.description}</p>
+            <div class="info-row">
+                <span class="info-label">Recognized Events</span>
+                <span class="info-value">${recognized}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Key Identifiers / Keywords</span>
+                <span class="info-value">${keywords}</span>
+            </div>
+        </div>
+    `;
 }
 
 function generateFlowMarkup(call) {

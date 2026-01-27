@@ -19,6 +19,11 @@ This tool helps Law Enforcement Investigators quickly interpret complex, raw car
     - **CSV Export**: Export call summaries for use in Case Management Systems or Excel.
     - **Print-Ready**: Optimized styling for PDF generation in case folders.
 
+## Standards Reference
+
+- **T1.678 / LAES**: Implements the ANSI T1.678 message model for Attempt, Signaling, and Release event types plus associated fields (Call ID, ANI, DNIS, event timestamps, called/calling context) so raw CDC/LAES traces map directly to the canonical per-call sequence required in lawful interception reporting.
+- **3GPP IMS Signaling (TS 24.229 and related releases)**: Mirrors the IMS call state terminology (Origination, Answer, Release, CCOpen/CCClose, Direct Signal Reporting) and extracts P-Access-Network-Info attributes such as `3GPP-UTRAN-FDD;utran-cell-id-3gpp=...` so the analyzer can interpret IMS/SIP dumps that follow the 3GPP call model.
+
 ## How to Use
 
 1. **Paste Data**: Copy your raw CDC/LAES text logs into the input area.

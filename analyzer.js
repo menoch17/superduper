@@ -504,9 +504,13 @@ function getDecimalValue(value) {
 
 // Global state for multi-call UI and tower data
 let currentAnalyzer = null;
-let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
+let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId, azimuth, beamWidth, sectorName, sectorRadiusMeters }
 let supabaseClient = null;
 let leafletMap = null;
+let sectorLayers = [];
+
+const SECTOR_DEFAULT_BEAM_WIDTH = 65;
+const SECTOR_DEFAULT_RADIUS_METERS = 2000;
 
 // Hardcoded Supabase Configuration
 const SUPABASE_CONFIG = {
@@ -859,6 +863,8 @@ function initMap(locations) {
             leafletMap = null;
             window.map = null;
         }
+        sectorLayers.forEach(layer => layer.remove());
+        sectorLayers = [];
         const baseLat = 40.7128;
         const baseLng = -74.0060;
         const map = L.map('map');
@@ -907,6 +913,13 @@ function initMap(locations) {
                     </div>
                 `);
             markers.push(marker);
+            if (tower) {
+                const sectorLayer = createSectorLayer(tower, lat, lng);
+                if (sectorLayer) {
+                    sectorLayer.addTo(map);
+                    sectorLayers.push(sectorLayer);
+                }
+            }
         });
 
         if (markers.length > 0) {
@@ -916,6 +929,60 @@ function initMap(locations) {
             map.setView([baseLat, baseLng], 13);
         }
     } catch (e) { console.error("Map init failed", e); }
+}
+
+function createSectorLayer(tower, lat, lng) {
+    const az = Number.isFinite(tower.azimuth) ? tower.azimuth : null;
+    if (az === null) return null;
+    const beamWidth = Number.isFinite(tower.beamWidth) ? tower.beamWidth : SECTOR_DEFAULT_BEAM_WIDTH;
+    const radiusMeters = Number.isFinite(tower.sectorRadiusMeters) ? tower.sectorRadiusMeters : SECTOR_DEFAULT_RADIUS_METERS;
+    const polygonPoints = buildSectorPolygon(lat, lng, az, beamWidth, radiusMeters);
+    if (!polygonPoints.length) return null;
+
+    const layer = L.polygon(polygonPoints, {
+        color: '#2b6cb0',
+        fillColor: '#2b6cb0',
+        fillOpacity: 0.12,
+        weight: 1.2,
+        dashArray: '6',
+        interactive: false
+    });
+    const tooltipLines = [];
+    if (tower.sectorName) tooltipLines.push(tower.sectorName);
+    tooltipLines.push(`Azimuth: ${az.toFixed(0)}°`);
+    tooltipLines.push(`Beam: ${beamWidth.toFixed(0)}°`);
+    layer.bindTooltip(tooltipLines.join(' | '), { permanent: false, direction: 'top' });
+    return layer;
+}
+
+function buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters) {
+    const points = [];
+    const stepCount = Math.max(6, Math.ceil(Math.abs(beamWidth) / 5));
+    const halfBeam = beamWidth / 2;
+    for (let i = 0; i <= stepCount; i++) {
+        const offset = (i / stepCount) * beamWidth;
+        const angle = (azimuth - halfBeam + offset + 360) % 360;
+        const dest = destinationPoint(lat, lng, radiusMeters, angle);
+        points.push([dest.lat, dest.lon]);
+    }
+    // Close the cone by returning to center
+    points.unshift([lat, lng]);
+    points.push([lat, lng]);
+    return points;
+}
+
+function destinationPoint(lat, lng, distanceMeters, bearingDegrees) {
+    const R = 6371000;
+    const δ = distanceMeters / R;
+    const θ = bearingDegrees * Math.PI / 180;
+    const φ1 = lat * Math.PI / 180;
+    const λ1 = lng * Math.PI / 180;
+    const sinφ2 = Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
+    const φ2 = Math.asin(Math.min(1, Math.max(-1, sinφ2)));
+    const y = Math.sin(θ) * Math.sin(δ) * Math.cos(φ1);
+    const x = Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2);
+    const λ2 = λ1 + Math.atan2(y, x);
+    return { lat: φ2 * 180 / Math.PI, lon: (λ2 * 180 / Math.PI + 540) % 360 - 180 };
 }
 
 function exportCSV() {
@@ -1027,6 +1094,8 @@ function parseTowerCSV(text) {
     const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
     console.log(`Parsing CSV with delimiter "${delimiter}". Headers:`, headers);
 
+    const findHeaderIndex = (keywords) => headers.findIndex(h => keywords.some(keyword => h.includes(keyword)));
+
     const colIdx = {
         lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
         cid: headers.findIndex(h => h === 'cgi' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
@@ -1034,7 +1103,11 @@ function parseTowerCSV(text) {
         lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x' || h === 'site_longitude' || h === 'sector_longitude'),
         address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
         market: headers.findIndex(h => h === 'market' || h === 'market_name'),
-        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id' || h === 'site_id')
+        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id' || h === 'site_id'),
+        azimuth: findHeaderIndex(['azimuth', 'bearing', 'sector azimuth', 'sectorbearing']),
+        beamWidth: findHeaderIndex(['beamwidth', 'beam width', 'sector width', 'sectorbeam', 'sector beamwidth', 'beam']),
+        radius: findHeaderIndex(['radius', 'range', 'coverage radius', 'sector radius', 'beam radius', 'sector range']),
+        sectorName: findHeaderIndex(['sector', 'sector name', 'panel', 'sectorid'])
     };
 
     // If we can't find core columns, fail
@@ -1056,6 +1129,10 @@ function parseTowerCSV(text) {
         const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]) : null;
         const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]) : null;
         const address = colIdx.address !== -1 ? row[colIdx.address] : null;
+        const azimuthVal = colIdx.azimuth !== -1 ? parseFloat(row[colIdx.azimuth]) : null;
+        const beamVal = colIdx.beamWidth !== -1 ? parseFloat(row[colIdx.beamWidth]) : null;
+        const radiusVal = colIdx.radius !== -1 ? parseFloat(row[colIdx.radius]) : null;
+        const nameVal = colIdx.sectorName !== -1 ? row[colIdx.sectorName] : null;
 
         if (lac && cid) {
             const key = `${lac}-${cid}`;
@@ -1064,7 +1141,11 @@ function parseTowerCSV(text) {
                 lon: isNaN(lon) ? null : lon,
                 address: address || 'No address provided',
                 market: colIdx.market !== -1 ? row[colIdx.market] : null,
-                siteId: colIdx.siteId !== -1 ? row[colIdx.siteId] : null
+                siteId: colIdx.siteId !== -1 ? row[colIdx.siteId] : null,
+                azimuth: Number.isFinite(azimuthVal) ? azimuthVal : null,
+                beamWidth: Number.isFinite(beamVal) ? beamVal : null,
+                sectorRadiusMeters: Number.isFinite(radiusVal) ? radiusVal : null,
+                sectorName: nameVal ? nameVal : null
             });
             loadedCount++;
         }

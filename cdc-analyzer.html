@@ -549,6 +549,34 @@
             font-family: 'Consolas', monospace;
         }
 
+        /* SMS Message Styling */
+        .sms-bubble {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            margin: 8px 0;
+            position: relative;
+        }
+
+        .sms-bubble.incoming {
+            background: #e2e8f0;
+            color: #1a202c;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+
+        .sms-bubble.outgoing {
+            background: #3182ce;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+
+        .timeline-event.event-sms::before {
+            background: #9f7aea;
+            box-shadow: 0 0 0 2px #9f7aea;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .container {
@@ -621,6 +649,7 @@ Example message types this tool can parse:
             constructor(rawData) {
                 this.rawData = rawData;
                 this.messages = [];
+                this.smsMessages = []; // Track SMS messages separately
                 this.callInfo = {
                     caseId: null,
                     callId: null,
@@ -725,7 +754,9 @@ Example message types this tool can parse:
                 };
 
                 // Determine message type
-                if (block.includes('termAttempt') && !block.includes('ims_3gpp')) {
+                if (block.includes('uuContent') || block.includes('ims_3GPP_VOIP_uuContent')) {
+                    result.type = 'uuContent';
+                } else if (block.includes('termAttempt') && !block.includes('ims_3gpp')) {
                     result.type = 'termAttempt';
                 } else if (block.includes('origAttempt')) {
                     result.type = 'origAttempt';
@@ -765,6 +796,9 @@ Example message types this tool can parse:
                         break;
                     case 'release':
                         result.data = this.parseReleaseMessage(block);
+                        break;
+                    case 'uuContent':
+                        result.data = this.parseUUContentMessage(block);
                         break;
                 }
 
@@ -970,6 +1004,253 @@ Example message types this tool can parse:
                 return data;
             }
 
+            parseUUContentMessage(block) {
+                const data = {
+                    sipMessage: null,
+                    smsData: null,
+                    direction: null,
+                    fromNumber: null,
+                    toNumber: null,
+                    messageText: null,
+                    deviceInfo: {},
+                    location: null
+                };
+
+                // Extract the hex-encoded signaling message
+                const sigMsgMatch = block.match(/signalingMsg\[0\]\s*=\s*([0-9a-fA-F]+)/);
+                if (sigMsgMatch) {
+                    const hexData = sigMsgMatch[1];
+                    const decoded = this.hexToString(hexData);
+                    data.sipMessage = decoded;
+
+                    // Parse the decoded SIP MESSAGE
+                    const sipParsed = this.parseSIPContent(decoded);
+                    data.sipParsed = sipParsed;
+
+                    // Extract phone numbers from SIP headers
+                    if (sipParsed.headers) {
+                        // From header
+                        const fromHeader = sipParsed.headers['From'] || sipParsed.headers['P-Preferred-Identity'] || sipParsed.headers['P-Asserted-Identity'];
+                        if (fromHeader) {
+                            const fromMatch = fromHeader.match(/sip:(\+?1?\d{10,})/i) || fromHeader.match(/(\d{10,})/);
+                            if (fromMatch) data.fromNumber = this.normalizePhoneNumber(fromMatch[1]);
+                        }
+
+                        // To header
+                        const toHeader = sipParsed.headers['To'];
+                        if (toHeader) {
+                            const toMatch = toHeader.match(/sip:(\+?1?\d{10,})/i) || toHeader.match(/(\d{10,})/);
+                            if (toMatch) data.toNumber = this.normalizePhoneNumber(toMatch[1]);
+                        }
+
+                        // User-Agent for device info
+                        const ua = sipParsed.headers['User-Agent'];
+                        if (ua) {
+                            data.deviceInfo.userAgent = ua;
+                            // Parse iOS device
+                            const iosMatch = ua.match(/iOS\/([^\s]+)\s+(\w+)/i);
+                            if (iosMatch) {
+                                data.deviceInfo.manufacturer = 'Apple';
+                                data.deviceInfo.osVersion = iosMatch[1];
+                                data.deviceInfo.model = iosMatch[2];
+                            }
+                        }
+
+                        // Location from P-Access-Network-Info
+                        const pani = sipParsed.headers['P-Access-Network-Info'];
+                        if (pani) {
+                            data.location = {
+                                rawData: pani,
+                                parsed: {}
+                            };
+                            // Detect network type
+                            if (pani.includes('3GPP-NR')) {
+                                data.location.networkType = '5G NR';
+                            } else if (pani.includes('3GPP-E-UTRAN')) {
+                                data.location.networkType = '4G LTE';
+                            } else if (pani.includes('3GPP-UTRAN')) {
+                                data.location.networkType = '3G UMTS';
+                            }
+                            // Extract cell ID
+                            const cellMatch = pani.match(/utran-cell-id-3gpp=(\w+)/i);
+                            if (cellMatch) {
+                                data.location.parsed = this.parseCellId(cellMatch[1]);
+                            }
+                        }
+
+                        // Determine direction based on In-Reply-To header
+                        if (sipParsed.headers['In-Reply-To']) {
+                            data.direction = 'Outgoing (Reply from Target)';
+                        } else {
+                            data.direction = 'Incoming (To Target)';
+                        }
+                    }
+
+                    // Try to extract SMS content from body
+                    // The SMS PDU is at the end of the SIP message after the headers
+                    const bodyMatch = decoded.match(/Content-Length:\s*\d+\r?\n\r?\n([\s\S]+)$/);
+                    if (bodyMatch) {
+                        const smsPdu = bodyMatch[1];
+                        data.smsData = this.parseSMSPDU(smsPdu);
+                        if (data.smsData?.messageText) {
+                            data.messageText = data.smsData.messageText;
+                        }
+                    }
+                }
+
+                return data;
+            }
+
+            hexToString(hex) {
+                let str = '';
+                for (let i = 0; i < hex.length; i += 2) {
+                    const charCode = parseInt(hex.substr(i, 2), 16);
+                    str += String.fromCharCode(charCode);
+                }
+                return str;
+            }
+
+            normalizePhoneNumber(number) {
+                // Remove any non-digit characters except +
+                let cleaned = number.replace(/[^\d+]/g, '');
+                // Ensure it starts with +
+                if (!cleaned.startsWith('+')) {
+                    if (cleaned.length === 10) {
+                        cleaned = '+1' + cleaned;
+                    } else if (cleaned.length === 11 && cleaned.startsWith('1')) {
+                        cleaned = '+' + cleaned;
+                    }
+                }
+                return cleaned;
+            }
+
+            parseSMSPDU(pduData) {
+                // Parse 3GPP SMS PDU (TS 23.040)
+                const result = {
+                    messageText: null,
+                    smscNumber: null,
+                    senderNumber: null,
+                    timestamp: null,
+                    encoding: null,
+                    rawPdu: null
+                };
+
+                try {
+                    // Convert to hex if it's binary data
+                    let hexPdu = '';
+                    for (let i = 0; i < pduData.length; i++) {
+                        hexPdu += pduData.charCodeAt(i).toString(16).padStart(2, '0');
+                    }
+                    result.rawPdu = hexPdu;
+
+                    // Try to decode as GSM 7-bit or find readable text
+                    const decodedText = this.decodeGSM7BitText(hexPdu);
+                    if (decodedText && decodedText.length > 0) {
+                        result.messageText = decodedText;
+                    }
+                } catch (e) {
+                    console.log('SMS PDU parsing error:', e);
+                }
+
+                return result;
+            }
+
+            decodeGSM7BitText(hexPdu) {
+                // GSM 7-bit default alphabet mapping
+                const gsm7bitChars = '@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5\u0394_\u03a6\u0393\u039b\u03a9\u03a0\u03a8\u03a3\u0398\u039e \u00c6\u00e6\u00df\u00c9 !"#\u00a4%&\'()*+,-./0123456789:;<=>?\u00a1ABCDEFGHIJKLMNOPQRSTUVWXYZ\u00c4\u00d6\u00d1\u00dc\u00a7\u00bfabcdefghijklmnopqrstuvwxyz\u00e4\u00f6\u00f1\u00fc\u00e0';
+
+                // First try to find printable ASCII text directly in the hex
+                let text = '';
+                let foundText = false;
+                let consecutiveReadable = 0;
+
+                for (let i = 0; i < hexPdu.length; i += 2) {
+                    const byte = parseInt(hexPdu.substr(i, 2), 16);
+                    if (byte >= 32 && byte < 127) {
+                        text += String.fromCharCode(byte);
+                        consecutiveReadable++;
+                        if (consecutiveReadable > 3) foundText = true;
+                    } else if (byte === 0x0d || byte === 0x0a) {
+                        text += ' ';
+                    } else {
+                        if (text.length > 0 && consecutiveReadable > 3) {
+                            text += ' ';
+                        }
+                        consecutiveReadable = 0;
+                    }
+                }
+
+                // Clean up the text
+                text = text.replace(/\s+/g, ' ').trim();
+
+                // Try GSM 7-bit decoding if we didn't find good ASCII
+                if (!foundText || text.length < 5) {
+                    let gsm7Text = '';
+                    try {
+                        // Skip the SMS header (variable length) and try to decode the user data
+                        // This is a simplified approach - real PDU parsing is more complex
+                        const bytes = [];
+                        for (let i = 0; i < hexPdu.length; i += 2) {
+                            bytes.push(parseInt(hexPdu.substr(i, 2), 16));
+                        }
+
+                        // Try decoding as packed 7-bit from various offsets
+                        for (let offset = 0; offset < Math.min(30, bytes.length); offset++) {
+                            const decoded = this.unpack7Bit(bytes.slice(offset));
+                            if (decoded && decoded.length > 5) {
+                                // Check if it looks like readable text
+                                let readable = 0;
+                                for (const ch of decoded) {
+                                    const code = ch.charCodeAt(0);
+                                    if ((code >= 32 && code < 127) || code > 160) {
+                                        readable++;
+                                    }
+                                }
+                                if (readable > decoded.length * 0.7) {
+                                    gsm7Text = decoded;
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (e) {}
+
+                    if (gsm7Text && gsm7Text.length > text.length) {
+                        text = gsm7Text;
+                    }
+                }
+
+                return text || null;
+            }
+
+            unpack7Bit(bytes) {
+                const gsm7bitChars = '@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5\u0394_\u03a6\u0393\u039b\u03a9\u03a0\u03a8\u03a3\u0398\u039e \u00c6\u00e6\u00df\u00c9 !"#\u00a4%&\'()*+,-./0123456789:;<=>?\u00a1ABCDEFGHIJKLMNOPQRSTUVWXYZ\u00c4\u00d6\u00d1\u00dc\u00a7\u00bfabcdefghijklmnopqrstuvwxyz\u00e4\u00f6\u00f1\u00fc\u00e0';
+
+                let result = '';
+                let shift = 0;
+                let carry = 0;
+
+                for (let i = 0; i < bytes.length && result.length < 160; i++) {
+                    const byte = bytes[i];
+                    const char = ((byte << shift) | carry) & 0x7f;
+                    carry = byte >> (7 - shift);
+                    shift++;
+
+                    if (char < gsm7bitChars.length) {
+                        result += gsm7bitChars[char];
+                    }
+
+                    if (shift === 7) {
+                        if (carry < gsm7bitChars.length) {
+                            result += gsm7bitChars[carry];
+                        }
+                        shift = 0;
+                        carry = 0;
+                    }
+                }
+
+                return result;
+            }
+
             parseLocationData(block) {
                 const locations = [];
                 const locationMatches = block.matchAll(/location\[\d+\]\s*\n\s*locationType\s*=\s*(.+)\n\s*locationData\s*=\s*(.+)/gi);
@@ -1151,6 +1432,60 @@ Example message types this tool can parse:
                             this.callInfo.codecs = message.data.codecs;
                         }
                         break;
+
+                    case 'uuContent':
+                        // This is an SMS/MMS message
+                        this.callInfo.callType = 'SMS Message';
+                        this.smsMessages.push({
+                            timestamp: message.timestamp,
+                            caseId: message.caseId,
+                            callId: message.callId,
+                            ...message.data
+                        });
+
+                        // Update call info with SMS details
+                        if (message.data.fromNumber) {
+                            if (message.data.direction?.includes('Outgoing')) {
+                                // Target is sending
+                                if (!this.callInfo.callingParty.phoneNumber) {
+                                    this.callInfo.callingParty.phoneNumber = message.data.fromNumber;
+                                }
+                            } else {
+                                // Someone sending to target
+                                if (!this.callInfo.calledParty.phoneNumber) {
+                                    this.callInfo.calledParty.phoneNumber = message.data.fromNumber;
+                                }
+                            }
+                        }
+                        if (message.data.toNumber) {
+                            if (message.data.direction?.includes('Outgoing')) {
+                                if (!this.callInfo.calledParty.phoneNumber) {
+                                    this.callInfo.calledParty.phoneNumber = message.data.toNumber;
+                                }
+                            } else {
+                                if (!this.callInfo.callingParty.phoneNumber) {
+                                    this.callInfo.callingParty.phoneNumber = message.data.toNumber;
+                                }
+                            }
+                        }
+
+                        // Device info
+                        if (message.data.deviceInfo?.userAgent) {
+                            this.callInfo.deviceInfo = {
+                                ...this.callInfo.deviceInfo,
+                                ...message.data.deviceInfo
+                            };
+                        }
+
+                        // Location
+                        if (message.data.location) {
+                            this.callInfo.locations.push({
+                                type: 'P-A-N-I-Header',
+                                ...message.data.location,
+                                timestamp: message.timestamp
+                            });
+                        }
+                        break;
                 }
             }
 
@@ -1232,22 +1567,38 @@ Example message types this tool can parse:
             container.classList.add('active');
 
             const info = analyzer.callInfo;
+            const isSMS = info.callType === 'SMS Message' || analyzer.smsMessages.length > 0;
 
             let html = '';
 
             // Explanation Panel
-            html += `
-                <div class="explanation-panel">
-                    <h3>What This Data Shows</h3>
-                    <p>This is <strong>CALEA (Communications Assistance for Law Enforcement Act)</strong> intercept data from a phone carrier.
-                    The data captures communication events in real-time as they occur on the network.</p>
-                    <ul>
-                        <li><strong>T1.678</strong> - Industry standard format for delivering intercept data</li>
-                        <li><strong>LAES</strong> - Lawfully Authorized Electronic Surveillance message format</li>
-                        <li><strong>SIP</strong> - Session Initiation Protocol (how VoIP/VoLTE calls are set up)</li>
-                    </ul>
-                </div>
-            `;
+            if (isSMS) {
+                html += `
+                    <div class="explanation-panel">
+                        <h3>What This Data Shows</h3>
+                        <p>This is <strong>CALEA (Communications Assistance for Law Enforcement Act)</strong> SMS intercept data from a phone carrier.
+                        The data captures text messages sent via IMS (IP Multimedia Subsystem) / RCS / VoLTE messaging.</p>
+                        <ul>
+                            <li><strong>uuContent</strong> - User-to-User Content containing SMS/MMS data</li>
+                            <li><strong>SIP MESSAGE</strong> - The protocol used to send SMS over IMS networks</li>
+                            <li><strong>3GPP SMS PDU</strong> - Protocol Data Unit containing the actual message</li>
+                        </ul>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="explanation-panel">
+                        <h3>What This Data Shows</h3>
+                        <p>This is <strong>CALEA (Communications Assistance for Law Enforcement Act)</strong> intercept data from a phone carrier.
+                        The data captures communication events in real-time as they occur on the network.</p>
+                        <ul>
+                            <li><strong>T1.678</strong> - Industry standard format for delivering intercept data</li>
+                            <li><strong>LAES</strong> - Lawfully Authorized Electronic Surveillance message format</li>
+                            <li><strong>SIP</strong> - Session Initiation Protocol (how VoIP/VoLTE calls are set up)</li>
+                        </ul>
+                    </div>
+                `;
+            }
 
             // Summary Cards
             html += '<div class="summary-grid">';
@@ -1356,6 +1707,67 @@ Example message types this tool can parse:
 
             html += '</div>';
 
+            // SMS Messages Section (if applicable)
+            if (analyzer.smsMessages.length > 0) {
+                html += `
+                    <div class="device-section" style="border-left: 4px solid #48bb78;">
+                        <h3>SMS Message Content</h3>
+                        <p style="color: var(--text-muted); margin-bottom: 15px; font-size: 0.9rem;">
+                            Text message content extracted from IMS/RCS messaging. Messages are shown in chronological order.
+                        </p>
+                `;
+
+                for (const sms of analyzer.smsMessages) {
+                    const direction = sms.direction || 'Unknown Direction';
+                    const directionClass = direction.includes('Outgoing') ? 'badge-warning' : 'badge-success';
+                    const directionIcon = direction.includes('Outgoing') ? '&rarr;' : '&larr;';
+
+                    html += `
+                        <div style="background: #f8fafc; border-radius: 8px; padding: 15px; margin-bottom: 15px; border: 1px solid var(--border-color);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <span class="badge ${directionClass}">${directionIcon} ${direction}</span>
+                                <span class="timeline-time">${analyzer.formatTimestamp(sms.timestamp)}</span>
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <strong>From:</strong> <span class="phone-number" style="font-size: 1rem;">${analyzer.formatPhoneNumber(sms.fromNumber)}</span>
+                                &nbsp;&nbsp;
+                                <strong>To:</strong> <span class="phone-number" style="font-size: 1rem;">${analyzer.formatPhoneNumber(sms.toNumber)}</span>
+                            </div>
+                    `;
+
+                    if (sms.messageText) {
+                        html += `
+                            <div style="background: white; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 10px;">
+                                <strong style="color: var(--text-muted); font-size: 0.85rem;">MESSAGE TEXT:</strong>
+                                <p style="font-size: 1.1rem; margin-top: 8px; white-space: pre-wrap;">${escapeHtml(sms.messageText)}</p>
+                            </div>
+                        `;
+                    } else if (sms.smsData?.rawPdu) {
+                        html += `
+                            <div style="background: #fffbeb; padding: 15px; border-radius: 6px; border: 1px solid #fcd34d; margin-top: 10px;">
+                                <strong style="color: #92400e; font-size: 0.85rem;">RAW SMS PDU (Unable to fully decode):</strong>
+                                <p style="font-family: monospace; font-size: 0.8rem; margin-top: 8px; word-break: break-all;">${sms.smsData.rawPdu.substring(0, 200)}${sms.smsData.rawPdu.length > 200 ? '...' : ''}</p>
+                            </div>
+                        `;
+                    }
+
+                    // Show location if available for this SMS
+                    if (sms.location) {
+                        html += `
+                            <div style="margin-top: 10px; padding: 10px; background: #f0f9ff; border-radius: 4px; border: 1px solid #bae6fd;">
+                                <strong style="font-size: 0.85rem; color: #0369a1;">Network Location:</strong>
+                                <span style="margin-left: 10px;">${sms.location.networkType || 'Cellular'}</span>
+                                ${sms.location.parsed?.fullCellId ? `<span style="margin-left: 10px; font-family: monospace; font-size: 0.85rem;">Cell: ${sms.location.parsed.fullCellId}</span>` : ''}
+                            </div>
+                        `;
+                    }
+
+                    html += '</div>';
+                }
+
+                html += '</div>';
+            }
+
             // Device Information Section
             if (info.deviceInfo.userAgent) {
                 html += `
@@ -1426,7 +1838,7 @@ Example message types this tool can parse:
                                 <div class="cell-detail">
                                     <label>MNC (Network)</label>
                                     <span>${loc.parsed.mnc}</span>
-                                    <small style="display: block; color: var(--text-muted);">${loc.parsed.mnc === '480' ? 'Verizon' : ''}</small>
+                                    <small style="display: block; color: var(--text-muted);">${getMNCCarrier(loc.parsed.mcc, loc.parsed.mnc)}</small>
                                 </div>
                                 ` : ''}
                                 ${loc.parsed?.lac ? `
@@ -1551,6 +1963,18 @@ Example message types this tool can parse:
                         eventTitle = 'Call Released';
                         eventDetails = `Reason: ${msg.data.cause || 'Normal termination'}`;
                         break;
+                    case 'uuContent':
+                        eventClass = msg.data.direction?.includes('Outgoing') ? 'event-start' : 'event-answer';
+                        eventTitle = 'SMS Message';
+                        const smsDir = msg.data.direction?.includes('Outgoing') ? 'Sent' : 'Received';
+                        eventDetails = `${smsDir}: ${analyzer.formatPhoneNumber(msg.data.fromNumber)} → ${analyzer.formatPhoneNumber(msg.data.toNumber)}`;
+                        if (msg.data.messageText) {
+                            const preview = msg.data.messageText.length > 50
+                                ? msg.data.messageText.substring(0, 50) + '...'
+                                : msg.data.messageText;
+                            eventDetails += `<br><em style="color: var(--text-color);">"${escapeHtml(preview)}"</em>`;
+                        }
+                        break;
                     default:
                         eventTitle = msg.type || 'Unknown Event';
                         eventDetails = '';
@@ -1622,6 +2046,52 @@ Example message types this tool can parse:
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function getMNCCarrier(mcc, mnc) {
+            // US carriers (MCC 310, 311, 312, 313, 316)
+            const usCarriers = {
+                '310': {
+                    '004': 'Verizon', '005': 'Verizon', '006': 'Verizon', '010': 'Verizon', '012': 'Verizon',
+                    '013': 'Verizon', '590': 'Verizon', '890': 'Verizon', '910': 'Verizon',
+                    '026': 'T-Mobile', '160': 'T-Mobile', '200': 'T-Mobile', '210': 'T-Mobile',
+                    '220': 'T-Mobile', '230': 'T-Mobile', '240': 'T-Mobile', '250': 'T-Mobile',
+                    '260': 'T-Mobile', '270': 'T-Mobile', '300': 'T-Mobile', '310': 'T-Mobile',
+                    '330': 'T-Mobile', '490': 'T-Mobile', '530': 'T-Mobile', '580': 'T-Mobile',
+                    '660': 'T-Mobile', '800': 'T-Mobile',
+                    '030': 'AT&T', '070': 'AT&T', '090': 'AT&T', '150': 'AT&T', '170': 'AT&T',
+                    '280': 'AT&T', '380': 'AT&T', '410': 'AT&T', '560': 'AT&T', '680': 'AT&T',
+                    '980': 'AT&T',
+                    '120': 'Sprint/T-Mobile', '830': 'Sprint/T-Mobile'
+                },
+                '311': {
+                    '480': 'Verizon', '481': 'Verizon', '482': 'Verizon', '483': 'Verizon',
+                    '484': 'Verizon', '485': 'Verizon', '486': 'Verizon', '487': 'Verizon',
+                    '488': 'Verizon', '489': 'Verizon',
+                    '490': 'T-Mobile', '660': 'T-Mobile', '882': 'T-Mobile', '490': 'T-Mobile',
+                    '180': 'AT&T'
+                },
+                '312': {
+                    '530': 'Sprint/T-Mobile'
+                }
+            };
+
+            if (mcc && mnc && usCarriers[mcc] && usCarriers[mcc][mnc]) {
+                return usCarriers[mcc][mnc];
+            }
+
+            // Check partial matches for 2-digit MNCs
+            if (mcc && mnc && usCarriers[mcc]) {
+                const mnc2 = mnc.substring(0, 2);
+                const mnc3 = mnc.substring(0, 3);
+                for (const [key, value] of Object.entries(usCarriers[mcc])) {
+                    if (key === mnc3 || key === mnc2 || mnc.startsWith(key)) {
+                        return value;
+                    }
+                }
+            }
+
+            return '';
         }
 
         function clearAll() {

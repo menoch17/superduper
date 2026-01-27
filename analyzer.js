@@ -607,6 +607,36 @@ function displayResults(call, analyzer) {
         `;
     }
 
+    // Technical Message Timeline
+    html += `
+        <div class="timeline-section">
+            <h3>Technical Message Timeline</h3>
+            <div class="timeline-list">
+                ${call.messages.map(msg => `
+                    <div class="timeline-event">
+                        <div class="timeline-time">${analyzer.formatTimestamp(msg.timestamp)}</div>
+                        <div class="timeline-title">${msg.type}</div>
+                        <div class="timeline-details">${msg.data.sipMessages?.[0]?.content || JSON.stringify(msg.data, null, 2)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    // Raw Records Section
+    html += `
+        <div class="technical-section">
+            <h3>Raw CDC Records</h3>
+            <div class="raw-export">
+                ${call.messages.map(msg => `
+                   <div class="raw-record">
+                       <pre>${msg.rawBlock}</pre>
+                   </div>
+                `).join('<hr>')}
+            </div>
+        </div>
+    `;
+
     container.innerHTML = html;
 
     // Render Mermaid and Map

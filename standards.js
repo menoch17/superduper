@@ -35,7 +35,7 @@ const CDC_STANDARDS = {
             {
                 id: 'directSignalReporting',
                 displayName: 'Direct Signal Reporting',
-                keywords: ['directsignalreporting', 'ims_3gpp_voip_directsignalreporting'],
+                keywords: ['directsignalreporting', 'ims_3gpp_voip_directsignalreporting', 'ims_3gpp_voip_uucontent', 'ims_3gpp_voip_ucontent', 'ims_3gpp_voip_uuc'],
                 description: 'Carries SIP/SDP bodies, headers (P-Asserted-Identity, User-Agent, P-Access-Network-Info) and can include PANI-encoded tower info.'
             },
             {

@@ -534,7 +534,7 @@ function displayResults(call, analyzer) {
     html += '</div>';
 
     // Sequence Diagram (Mermaid)
-    if (call.sipMessages.length > 0) {
+    if (call.messages.length > 0) {
         html += `
             <div class="timeline-section">
                 <h3>Call Flow Diagram</h3>
@@ -550,14 +550,17 @@ function displayResults(call, analyzer) {
         `;
     }
 
-    <div class="location-section">
-        <h3>Cell Tower Mapping</h3>
-        <p style="color: var(--warning-color); font-size: 0.85rem; margin-bottom: 10px; font-weight: 600;">
-            ⚠️ Note: These are estimated visual markers. For investigative precision, use the Cell ID links below.
-        </p>
-        <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
-        <div class="location-grid">
-            ${call.locations.map(loc => `
+    // Mapping Section
+    if (call.locations.length > 0) {
+        html += `
+            <div class="location-section">
+                <h3>Cell Tower Mapping</h3>
+                <p style="color: var(--warning-color); font-size: 0.85rem; margin-bottom: 10px; font-weight: 600;">
+                    ⚠️ Note: These are estimated visual markers. For investigative precision, use the Cell ID links below.
+                </p>
+                <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
+                <div class="location-grid">
+                    ${call.locations.map(loc => `
                         <div class="location-item">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                 <div>
@@ -574,8 +577,10 @@ function displayResults(call, analyzer) {
                             </div>
                         </div>
                     `).join('')}
-        </div>
-    </div>
+                </div>
+            </div>
+        `;
+    }
 
     // SMS Content
     if (call.smsData.length > 0) {
@@ -595,14 +600,13 @@ function displayResults(call, analyzer) {
         `;
     }
 
-    // Timeline and Technical remains similar but filtered for the call
-    // ...
-
     container.innerHTML = html;
 
     // Render Mermaid and Map
     setTimeout(() => {
-        mermaid.init();
+        if (typeof mermaid !== 'undefined') {
+            mermaid.init();
+        }
         if (call.locations.length > 0) initMap(call.locations);
     }, 100);
 }
@@ -657,7 +661,7 @@ function generateFlowMarkup(call) {
 }
 
 function initMap(locations) {
-    if (locations.length === 0) return;
+    if (locations.length === 0 || typeof L === 'undefined') return;
 
     const baseLat = 40.7128; // Default to NYC but map will fit bounds
     const baseLng = -74.0060;

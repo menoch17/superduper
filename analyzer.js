@@ -530,6 +530,7 @@ function getDecimalValue(value) {
 // Global state for multi-call UI and tower data
 let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId, azimuth, beamWidth, sectorName, sectorRadiusMeters }
+let towerDatabaseFullId = new Map(); // Key: normalized full cell IDs (ECGI, UTRAN)
 let supabaseClient = null;
 let leafletMap = null;
 let sectorLayers = [];
@@ -672,8 +673,11 @@ function displayResults(call, analyzer) {
             <p class="sub-heading-note">⚠️ These are estimated visual markers—please verify externally.</p>
             <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
             <div class="location-grid">
-                ${call.locations.map(loc => {
-            const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+                    ${call.locations.map(loc => {
+            const compositeKey = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+            const fullKey = normalizeFullCellId(loc.parsed.fullCellId);
+            let tower = towerDatabase.get(compositeKey);
+            if (!tower && fullKey) tower = towerDatabaseFullId.get(fullKey);
             const lacDecimal = getDecimalValue(loc.parsed.lac);
             const cellDecimal = getDecimalValue(loc.parsed.cellId);
             const openCellLink = (lacDecimal !== null && cellDecimal !== null)
@@ -800,6 +804,22 @@ function setupCollapsibles() {
             }
         });
     });
+}
+
+function normalizeFullCellId(value) {
+    if (!value) return null;
+    return value.toString().trim().toLowerCase().replace(/[^0-9a-f]/g, '');
+}
+
+function deriveTacFromEcgi(ecgi) {
+    if (!ecgi) return null;
+    const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
+    const parts = cleaned.split(/[-:]/).filter(Boolean);
+    const hexPart = parts.length > 1 ? parts[1] : parts[0];
+    if (!hexPart) return null;
+    const numeric = parseInt(hexPart, 16);
+    if (Number.isNaN(numeric)) return null;
+    return Math.floor(numeric / 256).toString();
 }
 
 function generateFlowMarkup(call, analyzer, baseTimestamp) {
@@ -1126,12 +1146,13 @@ function parseTowerCSV(text) {
         azimuth: findHeaderIndex(['azimuth', 'bearing', 'sector azimuth', 'sectorbearing']),
         beamWidth: findHeaderIndex(['beamwidth', 'beam width', 'sector width', 'sectorbeam', 'sector beamwidth', 'beam']),
         radius: findHeaderIndex(['radius', 'range', 'coverage radius', 'sector radius', 'beam radius', 'sector range']),
-        sectorName: findHeaderIndex(['sector', 'sector name', 'panel', 'sectorid'])
+        sectorName: findHeaderIndex(['sector', 'sector name', 'panel', 'sectorid']),
+        ecgi: findHeaderIndex(['ecgi', 'full cell id', 'cell global id'])
     };
 
     // If we can't find core columns, fail
-    if (colIdx.lac === -1 || colIdx.cid === -1) {
-        console.error("CSV Missing LAC or CID/CGI columns. Detected headers:", headers);
+    if ((colIdx.lac === -1 && colIdx.ecgi === -1) || colIdx.cid === -1) {
+        console.error("CSV Missing LAC/ECGI or CID/CGI columns. Detected headers:", headers);
         return 0;
     }
 
@@ -1143,7 +1164,7 @@ function parseTowerCSV(text) {
         const row = lines[i].split(delimiter).map(cell => cell.replace(/^"(.*)"$/, '$1').trim());
         if (row.length < 2) continue;
 
-        const lac = row[colIdx.lac];
+        let lac = colIdx.lac !== -1 ? row[colIdx.lac] : null;
         const cid = row[colIdx.cid];
         const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]) : null;
         const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]) : null;
@@ -1152,6 +1173,11 @@ function parseTowerCSV(text) {
         const beamVal = colIdx.beamWidth !== -1 ? parseFloat(row[colIdx.beamWidth]) : null;
         const radiusVal = colIdx.radius !== -1 ? parseFloat(row[colIdx.radius]) : null;
         const nameVal = colIdx.sectorName !== -1 ? row[colIdx.sectorName] : null;
+        const ecgiVal = colIdx.ecgi !== -1 ? row[colIdx.ecgi] : null;
+
+        if (!lac && ecgiVal) {
+            lac = deriveTacFromEcgi(ecgiVal);
+        }
 
         if (lac && cid) {
             const key = `${lac}-${cid}`;
@@ -1166,6 +1192,11 @@ function parseTowerCSV(text) {
                 sectorRadiusMeters: Number.isFinite(radiusVal) ? radiusVal : null,
                 sectorName: nameVal ? nameVal : null
             });
+            const stored = towerDatabase.get(key);
+            const fullIdKey = normalizeFullCellId(ecgiVal);
+            if (fullIdKey && stored) {
+                towerDatabaseFullId.set(fullIdKey, stored);
+            }
             loadedCount++;
         }
     }

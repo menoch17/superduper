@@ -4,36 +4,35 @@ A high-performance, single-page application for parsing and analyzing **CDC (Cal
 
 This tool helps Law Enforcement Investigators quickly interpret complex, raw carrier signaling data into an easy-to-understand timeline.
 
-## Features
+## Key Features
 
-- **Multi-Format Parsing**: Supports T1.678 and LAES message formats.
-- **Visual Call Timeline**: Automatically builds a chronological timeline of all signaling events.
-- **Identity Extraction**: Parses and formats caller/called parties, including phone numbers and names.
-- **Location Analysis**: Extracts cell tower and sector information from SIP headers (`P-Access-Network-Info`).
-- **Device Identification**: Identifies manufacturer, model, and OS version of the target device.
-- **STIR/SHAKEN Verification**: Displays the verification status and attestation level of incoming calls.
-- **Audio Codec Analysis**: Shows negotiated voice codecs for better understanding of call quality.
-- **SIP Signaling View**: Interactive, syntax-highlighted viewers for raw SIP messages.
-- **Print Ready**: Optimized styling for generating PDF reports of investigations.
+- **Multi-Call Analysis**: Automatically groups messages by Call ID, allowing you to analyze multiple calls/events from a single log file.
+- **Interactive Mapping**: Visualizes cell tower locations on an interactive map using Leaflet.js.
+- **Call Flow Diagrams**: Generates SIP sequence diagrams using Mermaid.js to visualize the network handshake.
+- **Enhanced Parsing**:
+    - **T1.678/LAES**: Full support for attempt, signaling, and release messages.
+    - **SMS/MMS**: Visualizes text message content and direction.
+    - **Carrier Lookup**: Automatic identification of carriers via MCC/MNC codes.
+    - **Device Info**: Extracts User-Agent strings and device models.
+- **Investigative Reporting**:
+    - **STIR/SHAKEN**: Displays caller ID verification status.
+    - **CSV Export**: Export call summaries for use in Case Management Systems or Excel.
+    - **Print-Ready**: Optimized styling for PDF generation in case folders.
 
 ## How to Use
 
-1. **Paste Data**: Paste the raw CDC/LAES messaging data from the carrier into the input area.
-2. **Analyze**: Click "Analyze CDC Data" to process the information.
-3. **Review**:
-   - The **Summary Cards** show the caller, called party, and basic call statistics.
-   - The **Call Timeline** provides a step-by-step view of the call lifecycle.
-   - **Device & Location** sections show where the target was and what device they were using.
-   - **Technical Details** (optional) show the raw signaling messages for deeper forensic analysis.
+1. **Paste Data**: Copy your raw CDC/LAES text logs into the input area.
+2. **Analyze**: Click "Analyze CDC Data".
+3. **Select Event**: If the log contains multiple calls, use the dropdown to switch between them.
+4. **Explore**:
+    - Check the **Summary Cards** for high-level info (Parties, Duration, Carrier).
+    - Review the **Map** to see cell tower locations (approximate based on LAC/CellID).
+    - Use the **Call Flow Diagram** to trace SIP signaling.
+5. **Export**: Use the "Export CSV" button for reporting.
 
-## Development
+## Privacy & Security
 
-This project is built using:
-- HTML5
-- Vanilla CSS
-- Vanilla JavaScript
-
-No external dependencies are required.
+This is a **client-side only** tool. No data is uploaded to any server. All parsing, mapping, and visualization happen entirely within your local browser, making it safe for sensitive investigative data.
 
 ## License
 

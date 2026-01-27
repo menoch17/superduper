@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CDC Messaging Analyzer - Law Enforcement Tool</title>
     <link rel="stylesheet" href="style.css">
+    <!-- External Libraries (Mapping & Diagrams) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 
 <body>
@@ -34,10 +36,22 @@ Example message types this tool can parse:
         </div>
 
         <div class="results-container" id="resultsContainer">
-            <!-- Results will be inserted here -->
+            <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
+                <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call / Event:</label>
+                <select id="callSelector" onchange="switchCall(this.value)"
+                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
+                <button class="btn-secondary" onclick="exportCSV()"
+                    style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
+            </div>
+            <div id="callDetails">
+                <!-- Results will be inserted here -->
+            </div>
         </div>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="constants.js"></script>
     <script src="analyzer.js"></script>
 </body>
 

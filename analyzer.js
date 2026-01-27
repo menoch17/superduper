@@ -1269,53 +1269,55 @@ async function syncTowersFromCloud() {
     const syncBtn = document.getElementById('syncBtn');
     syncBtn.textContent = "Syncing...";
     syncBtn.disabled = true;
+    const towerStatus = document.getElementById('towerStatus');
 
     try {
-        let allData = [];
-        let from = 0;
-        let to = 999;
-        let hasMore = true;
-        const towerStatus = document.getElementById('towerStatus');
-
-        while (hasMore) {
-            towerStatus.textContent = `Syncing towers... (${allData.length} loaded)`;
-            const { data, error } = await supabaseClient
-                .from('towers')
-                .select('*')
-                .range(from, to);
-
-            if (error) throw error;
-
-            if (data && data.length > 0) {
-                allData = allData.concat(data);
-                from += 1000;
-                to += 1000;
-            } else {
-                hasMore = false;
-            }
+        const needed = collectNeededTowerKeys();
+        if (needed.size === 0) {
+            towerStatus.textContent = "No referenced towers found in logs. Upload CSV for local data or load a log first.";
+            console.warn("Skipping tower sync: no LAC/CID references detected.");
+            return;
         }
 
-        if (allData.length > 0) {
-            allData.forEach(row => {
+        const neededLacs = Array.from(new Set([...needed].map(key => key.split('-')[0])).values());
+        towerStatus.textContent = `Syncing ${needed.size} towers...`;
+        const { data, error } = await supabaseClient
+            .from('towers')
+            .select('*')
+            .in('lac', neededLacs);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+            let loaded = 0;
+            data.forEach(row => {
                 const key = `${row.lac}-${row.cid}`;
-                towerDatabase.set(key, {
-                    lat: row.lat,
-                    lon: row.lon,
-                    address: row.address,
-                    market: row.market,
-                    siteId: row.site_id
-                });
+                if (needed.has(key)) {
+                    towerDatabase.set(key, {
+                        lat: row.lat,
+                        lon: row.lon,
+                        address: row.address,
+                        market: row.market,
+                        siteId: row.site_id,
+                        azimuth: row.azimuth,
+                        beamWidth: row.beamwidth,
+                        sectorRadiusMeters: row.radius,
+                        sectorName: row.sector
+                    });
+                    loaded++;
+                }
             });
 
-            towerStatus.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${allData.length} towers synced from Cloud</span>`;
-            console.log(`Synced ${allData.length} towers from Supabase.`);
+            towerStatus.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${loaded} towers synced from Cloud</span>`;
+            console.log(`Synced ${loaded} towers from Supabase (targeted).`);
 
             if (currentAnalyzer) {
                 analyzeCDC();
             }
         } else {
-            towerStatus.textContent = "No towers found in cloud.";
+            towerStatus.textContent = "No matching towers found in cloud.";
         }
+
     } catch (e) {
         console.error("Cloud sync failed:", e);
         alert("Cloud sync failed. Check your Supabase settings or internet connection.");
@@ -1323,6 +1325,21 @@ async function syncTowersFromCloud() {
         syncBtn.textContent = "Sync Cloud";
         syncBtn.disabled = false;
     }
+}
+
+function collectNeededTowerKeys() {
+    const needed = new Set();
+    if (!currentAnalyzer) return needed;
+    currentAnalyzer.calls.forEach(call => {
+        for (const loc of call.locations) {
+            const lac = loc.parsed?.lac;
+            const cellId = loc.parsed?.cellId;
+            if (lac && cellId) {
+                needed.add(`${lac}-${cellId}`);
+            }
+        }
+    });
+    return needed;
 }
 
 async function uploadTowersToCloud() {

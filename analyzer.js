@@ -863,7 +863,7 @@ function initMap(locations) {
             leafletMap = null;
             window.map = null;
         }
-        sectorLayers.forEach(layer => layer.remove());
+        sectorLayers.forEach(layer => layer.remove?.());
         sectorLayers = [];
         const baseLat = 40.7128;
         const baseLng = -74.0060;
@@ -914,10 +914,14 @@ function initMap(locations) {
                 `);
             markers.push(marker);
             if (tower) {
-                const sectorLayer = createSectorLayer(tower, lat, lng);
-                if (sectorLayer) {
-                    sectorLayer.addTo(map);
-                    sectorLayers.push(sectorLayer);
+                try {
+                    const sectorLayer = createSectorLayer(tower, lat, lng);
+                    if (sectorLayer) {
+                        sectorLayer.addTo(map);
+                        sectorLayers.push(sectorLayer);
+                    }
+                } catch (err) {
+                    console.error("Sector layer render failed", err);
                 }
             }
         });
@@ -932,12 +936,14 @@ function initMap(locations) {
 }
 
 function createSectorLayer(tower, lat, lng) {
-    const az = Number.isFinite(tower.azimuth) ? tower.azimuth : null;
-    if (az === null) return null;
+    const azimuth = Number.isFinite(tower.azimuth) ? tower.azimuth : null;
+    if (azimuth === null) return null;
     const beamWidth = Number.isFinite(tower.beamWidth) ? tower.beamWidth : SECTOR_DEFAULT_BEAM_WIDTH;
     const radiusMeters = Number.isFinite(tower.sectorRadiusMeters) ? tower.sectorRadiusMeters : SECTOR_DEFAULT_RADIUS_METERS;
-    const polygonPoints = buildSectorPolygon(lat, lng, az, beamWidth, radiusMeters);
-    if (!polygonPoints.length) return null;
+    if (radiusMeters <= 0) return null;
+
+    const polygonPoints = buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters);
+    if (polygonPoints.length < 3) return null;
 
     const layer = L.polygon(polygonPoints, {
         color: '#2b6cb0',
@@ -949,7 +955,7 @@ function createSectorLayer(tower, lat, lng) {
     });
     const tooltipLines = [];
     if (tower.sectorName) tooltipLines.push(tower.sectorName);
-    tooltipLines.push(`Azimuth: ${az.toFixed(0)}°`);
+    tooltipLines.push(`Azimuth: ${azimuth.toFixed(0)}°`);
     tooltipLines.push(`Beam: ${beamWidth.toFixed(0)}°`);
     layer.bindTooltip(tooltipLines.join(' | '), { permanent: false, direction: 'top' });
     return layer;
@@ -957,14 +963,18 @@ function createSectorLayer(tower, lat, lng) {
 
 function buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters) {
     const points = [];
-    const stepCount = Math.max(6, Math.ceil(Math.abs(beamWidth) / 5));
-    const halfBeam = beamWidth / 2;
+    const normalizedBeam = Math.max(5, Math.min(beamWidth, 180));
+    const stepCount = Math.max(6, Math.ceil(Math.abs(normalizedBeam) / 5));
+    const halfBeam = normalizedBeam / 2;
     for (let i = 0; i <= stepCount; i++) {
-        const offset = (i / stepCount) * beamWidth;
+        const offset = (i / stepCount) * normalizedBeam;
         const angle = (azimuth - halfBeam + offset + 360) % 360;
         const dest = destinationPoint(lat, lng, radiusMeters, angle);
-        points.push([dest.lat, dest.lon]);
+        if (dest && Number.isFinite(dest.lat) && Number.isFinite(dest.lon)) {
+            points.push([dest.lat, dest.lon]);
+        }
     }
+    if (!points.length) return [];
     // Close the cone by returning to center
     points.unshift([lat, lng]);
     points.push([lat, lng]);
@@ -972,17 +982,17 @@ function buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters) {
 }
 
 function destinationPoint(lat, lng, distanceMeters, bearingDegrees) {
-    const R = 6371000;
-    const δ = distanceMeters / R;
-    const θ = bearingDegrees * Math.PI / 180;
-    const φ1 = lat * Math.PI / 180;
-    const λ1 = lng * Math.PI / 180;
-    const sinφ2 = Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
-    const φ2 = Math.asin(Math.min(1, Math.max(-1, sinφ2)));
-    const y = Math.sin(θ) * Math.sin(δ) * Math.cos(φ1);
-    const x = Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2);
-    const λ2 = λ1 + Math.atan2(y, x);
-    return { lat: φ2 * 180 / Math.PI, lon: (λ2 * 180 / Math.PI + 540) % 360 - 180 };
+    const radiusEarth = 6371000;
+    const delta = distanceMeters / radiusEarth;
+    const theta = bearingDegrees * Math.PI / 180;
+    const phi1 = lat * Math.PI / 180;
+    const lambda1 = lng * Math.PI / 180;
+    const sinPhi2 = Math.sin(phi1) * Math.cos(delta) + Math.cos(phi1) * Math.sin(delta) * Math.cos(theta);
+    const phi2 = Math.asin(Math.min(1, Math.max(-1, sinPhi2)));
+    const y = Math.sin(theta) * Math.sin(delta) * Math.cos(phi1);
+    const x = Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2);
+    const lambda2 = lambda1 + Math.atan2(y, x);
+    return { lat: phi2 * 180 / Math.PI, lon: (lambda2 * 180 / Math.PI + 540) % 360 - 180 };
 }
 
 function exportCSV() {

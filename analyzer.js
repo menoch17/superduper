@@ -876,7 +876,7 @@ function initMap(locations) {
         sectorLayers = [];
         const baseLat = 40.7128;
         const baseLng = -74.0060;
-        const map = L.map('map');
+        const map = L.map('map', { scrollWheelZoom: false });
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);

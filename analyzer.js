@@ -82,18 +82,35 @@ class CDCAnalyzer {
         const blocks = [];
         const lines = data.split('\n');
         let currentBlock = [];
+        const typeKeywords = new Set([
+            'termattempt',
+            'origattempt',
+            'directsignalreporting',
+            'ccopen',
+            'ccclose',
+            'answer',
+            'release',
+            'smsmessage',
+            'mmsmessage',
+            'ims_3gpp_voip_origination',
+            'ims_3gpp_voip_answer',
+            'ims_3gpp_voip_release',
+            'ims_3gpp_voip_directsignalreporting',
+            'ims_3gpp_voip_ccopen',
+            'ims_3gpp_voip_ccclose'
+        ]);
 
         for (const line of lines) {
             const trimmed = line.trim();
-            // Detect start of a new record (Type followed by Version)
-            const isNewHeader = /^[A-Za-z].*Version \d/.test(trimmed);
+            const normalized = trimmed.toLowerCase();
+            const isTypeLine = typeKeywords.has(normalized) && line === trimmed;
 
-            if (isNewHeader && currentBlock.length > 0) {
+            if (isTypeLine && currentBlock.length > 0) {
                 blocks.push(currentBlock.join('\n'));
-                currentBlock = [line];
-            } else {
-                currentBlock.push(line);
+                currentBlock = [];
             }
+
+            currentBlock.push(line);
         }
 
         if (currentBlock.length > 0) {
@@ -313,26 +330,28 @@ class CDCAnalyzer {
 
     parseCellId(cellId) {
         const result = { fullCellId: cellId, mcc: null, mnc: null, lac: null, cellId: null };
-        if (cellId.length >= 15) {
-            result.mcc = cellId.substring(0, 3);
-            result.mnc = cellId.substring(3, 6);
-            const tacAndCell = cellId.substring(6);
+        if (typeof cellId !== 'string' || cellId.length < 15) return result;
 
-            // Check if it's hex (T-Mobile/Nokia style often uses hex for these fields)
-            const isHex = /[a-fA-F]/.test(tacAndCell);
+        result.mcc = cellId.substring(0, 3);
+        result.mnc = cellId.substring(3, 6);
+        const tacAndCell = cellId.substring(6);
+        const isHex = /[a-fA-F]/.test(tacAndCell);
+        const lacPart = tacAndCell.substring(0, 4);
+        const cidPart = tacAndCell.substring(4);
 
-            if (isHex || tacAndCell.length > 8) {
-                // Heuristic: If it has hex chars or is long, treat as hex
-                result.lacHex = tacAndCell.substring(0, 4);
-                result.cidHex = tacAndCell.substring(4);
-                result.lac = parseInt(result.lacHex, 16);
-                result.cellId = parseInt(result.cidHex, 16);
-            } else {
-                // Fallback to standard decimal parsing if it looks like decimal
-                result.lac = tacAndCell.substring(0, 4);
-                result.cellId = tacAndCell.substring(4);
-            }
+        if (isHex || tacAndCell.length > 8) {
+            result.lacHex = lacPart;
+            result.cidHex = cidPart;
+            result.lac = parseInt(lacPart, 16);
+            result.cellId = parseInt(cidPart, 16);
+        } else {
+            result.lac = parseInt(lacPart, 10);
+            result.cellId = parseInt(cidPart, 10);
         }
+
+        if (!Number.isFinite(result.lac)) result.lac = lacPart;
+        if (!Number.isFinite(result.cellId)) result.cellId = cidPart;
+
         return result;
     }
 
@@ -455,10 +474,20 @@ class CDCAnalyzer {
     }
 }
 
+function getDecimalValue(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+        const parsed = parseInt(value.trim(), 10);
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    return null;
+}
+
 // Global state for multi-call UI and tower data
 let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
 let supabaseClient = null;
+let leafletMap = null;
 
 // Hardcoded Supabase Configuration
 const SUPABASE_CONFIG = {
@@ -513,6 +542,11 @@ function displayResults(call, analyzer) {
     const container = document.getElementById('callDetails');
     const resultsContainer = document.getElementById('resultsContainer');
     resultsContainer.classList.add('active');
+    if (leafletMap && (!call.locations.length)) {
+        leafletMap.remove();
+        leafletMap = null;
+        window.map = null;
+    }
 
     let html = '';
 
@@ -592,6 +626,11 @@ function displayResults(call, analyzer) {
                 <div class="location-grid">
                     ${call.locations.map(loc => {
             const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+            const lacDecimal = getDecimalValue(loc.parsed.lac);
+            const cellDecimal = getDecimalValue(loc.parsed.cellId);
+            const openCellLink = (lacDecimal !== null && cellDecimal !== null)
+                ? `https://opencellid.org/#action=locations.search&mcc=${loc.parsed.mcc}&mnc=${loc.parsed.mnc}&lac=${lacDecimal}&cellid=${cellDecimal}`
+                : '#';
             return `
                         <div class="location-item" style="${tower ? 'border-left: 5px solid var(--success-color);' : ''}">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -599,8 +638,9 @@ function displayResults(call, analyzer) {
                                     <strong>${loc.type}</strong> ${tower ? '<span class="badge badge-success" style="font-size: 0.6rem;">Matched</span>' : ''}<br>
                                     <small>${analyzer.formatTimestamp(loc.timestamp)}</small>
                                 </div>
-                                <a href="https://opencellid.org/#action=locations.search&mcc=${loc.parsed.mcc}&mnc=${loc.parsed.mnc}&lac=${parseInt(loc.parsed.lac, 16)}&cellid=${parseInt(loc.parsed.cellId, 16)}" 
-                                   target="_blank" class="btn-secondary" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none;">
+                                <a href="${openCellLink}" 
+                                   ${openCellLink !== '#' ? 'target="_blank"' : ''}
+                                   class="btn-secondary" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none;">
                                    Verify on OpenCellID
                                 </a>
                             </div>
@@ -734,12 +774,19 @@ function initMap(locations) {
     if (locations.length === 0 || typeof L === 'undefined') return;
 
     try {
+        if (leafletMap) {
+            leafletMap.remove();
+            leafletMap = null;
+            window.map = null;
+        }
         const baseLat = 40.7128;
         const baseLng = -74.0060;
         const map = L.map('map');
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
+        leafletMap = map;
+        window.map = map;
 
         const markers = [];
         locations.forEach(loc => {
@@ -753,8 +800,10 @@ function initMap(locations) {
                 lng = tower.lon;
                 isPrecise = true;
             } else {
-                const latOffset = (parseInt(loc.parsed.lac, 16) % 100) / 500;
-                const lngOffset = (parseInt(loc.parsed.cellId, 16) % 100) / 500;
+                const lacDecimal = getDecimalValue(loc.parsed.lac) || 0;
+                const cellDecimal = getDecimalValue(loc.parsed.cellId) || 0;
+                const latOffset = (lacDecimal % 100) / 500;
+                const lngOffset = (cellDecimal % 100) / 500;
                 lat = baseLat + latOffset;
                 lng = baseLng + lngOffset;
             }

@@ -1361,13 +1361,20 @@ async function uploadTowersToCloud() {
         let uploaded = 0;
 
         for (let i = 0; i < allRows.length; i += BATCH_SIZE) {
-            const chunk = allRows.slice(i, i + BATCH_SIZE);
-            towerStatus.textContent = `Uploading chunk... (${i + chunk.length} / ${allRows.length})`;
+            const rawChunk = allRows.slice(i, i + BATCH_SIZE);
+            const chunkMap = new Map();
+            rawChunk.forEach(row => {
+                const key = `${row.lac}-${row.cid}`;
+                chunkMap.set(key, row);
+            });
+            const uniqueChunk = Array.from(chunkMap.values());
 
-            const { error } = await supabaseClient.from('towers').upsert(chunk, { onConflict: 'lac,cid' });
+            towerStatus.textContent = `Uploading chunk... (${i + uniqueChunk.length} / ${allRows.length})`;
+
+            const { error } = await supabaseClient.from('towers').upsert(uniqueChunk, { onConflict: 'lac,cid' });
             if (error) throw error;
 
-            uploaded += chunk.length;
+            uploaded += uniqueChunk.length;
         }
 
         alert(`Successfully uploaded ${uploaded} records to the cloud!`);

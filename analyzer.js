@@ -120,6 +120,34 @@ class CDCAnalyzer {
         return blocks;
     }
 
+    detectMessageType(block) {
+        const normalized = block.toLowerCase();
+        if (normalized.includes('ims_3gpp_voip_termattempt') || normalized.split('\n')[0].trim().toLowerCase() === 'termattempt') {
+            return 'termAttempt';
+        }
+        if (normalized.includes('ims_3gpp_voip_origination') || normalized.split('\n')[0].trim().toLowerCase() === 'origattempt') {
+            return 'origAttempt';
+        }
+        if (normalized.includes('ims_3gpp_voip_answer') || normalized.split('\n')[0].trim().toLowerCase() === 'answer') {
+            return 'answer';
+        }
+        if (normalized.includes('ims_3gpp_voip_release') || normalized.split('\n')[0].trim().toLowerCase() === 'release') {
+            return 'release';
+        }
+        if (normalized.includes('ims_3gpp_voip_directsignalreporting') || normalized.split('\n')[0].trim().toLowerCase() === 'directsignalreporting' || normalized.includes('directsignalreporting')) {
+            return 'directSignalReporting';
+        }
+        if (normalized.includes('ims_3gpp_voip_ccopen') || normalized.split('\n')[0].trim().toLowerCase() === 'ccopen') {
+            return 'ccOpen';
+        }
+        if (normalized.includes('ims_3gpp_voip_ccclose') || normalized.split('\n')[0].trim().toLowerCase() === 'ccclose') {
+            return 'ccClose';
+        }
+        if (normalized.includes('smsmessage')) return 'smsMessage';
+        if (normalized.includes('mmsmessage')) return 'mmsMessage';
+        return null;
+    }
+
     parseMessageBlock(block) {
         const result = {
             rawBlock: block,
@@ -130,16 +158,7 @@ class CDCAnalyzer {
             data: {}
         };
 
-        if (block.includes('termAttempt') && !block.includes('ims_3GPP')) result.type = 'termAttempt';
-        else if (block.includes('origAttempt') && !block.includes('ims_3GPP')) result.type = 'origAttempt';
-        else if (block.includes('ims_3GPP_VoIP_origination')) result.type = 'origAttempt';
-        else if (block.includes('ims_3GPP_VoIP_answer') || (block.includes('answer') && block.includes('answering'))) result.type = 'answer';
-        else if (block.includes('ims_3GPP_VoIP_release') || (block.includes('release') && block.includes('cause'))) result.type = 'release';
-        else if (block.includes('ims_3GPP_VoIP_directSignalReporting') || block.includes('directSignalReporting')) result.type = 'directSignalReporting';
-        else if (block.includes('ims_3GPP_VoIP_ccOpen') || block.includes('ccOpen')) result.type = 'ccOpen';
-        else if (block.includes('ims_3GPP_VoIP_ccClose') || block.includes('ccClose')) result.type = 'ccClose';
-        else if (block.includes('smsMessage')) result.type = 'smsMessage';
-        else if (block.includes('mmsMessage')) result.type = 'mmsMessage';
+        result.type = this.detectMessageType(block);
 
         result.caseId = this.extractField(block, 'caseId');
         result.timestamp = this.extractField(block, 'timestamp');

@@ -103,7 +103,7 @@ class CDCAnalyzer {
         for (const line of lines) {
             const trimmed = line.trim();
             const normalized = trimmed.toLowerCase();
-            const isTypeLine = typeKeywords.has(normalized) && line === trimmed;
+            const isTypeLine = trimmed && typeKeywords.has(normalized);
 
             if (isTypeLine && currentBlock.length > 0) {
                 blocks.push(currentBlock.join('\n'));

@@ -443,7 +443,7 @@ class CDCAnalyzer {
 // Global state for multi-call UI and tower data
 let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
-let supabase = null;
+let supabaseClient = null;
 
 function analyzeCDC() {
     console.log("Analyzing CDC data...");
@@ -947,13 +947,17 @@ function initializeSupabase() {
     const url = localStorage.getItem('supabaseUrl');
     const key = localStorage.getItem('supabaseKey');
 
-    if (url && key && typeof supabase !== 'undefined') {
+    if (url && key) {
         try {
             // Check if supabase global exists from CDN
             if (window.supabase && window.supabase.createClient) {
-                supabase = window.supabase.createClient(url, key);
-                console.log("Supabase client initialized.");
+                if (!supabaseClient) {
+                    supabaseClient = window.supabase.createClient(url, key);
+                    console.log("Supabase client initialized.");
+                }
                 return true;
+            } else {
+                console.error("Supabase library not loaded from CDN.");
             }
         } catch (e) {
             console.error("Failed to init Supabase:", e);
@@ -973,7 +977,7 @@ async function syncTowersFromCloud() {
     syncBtn.disabled = true;
 
     try {
-        const { data, error } = await supabase.from('towers').select('*');
+        const { data, error } = await supabaseClient.from('towers').select('*');
         if (error) throw error;
 
         if (data && data.length > 0) {
@@ -1038,7 +1042,7 @@ async function uploadTowersToCloud() {
         });
 
         // Batch upsert (requires unique constraint on lac, cid in Supabase)
-        const { error } = await supabase.from('towers').upsert(rows, { onConflict: 'lac,cid' });
+        const { error } = await supabaseClient.from('towers').upsert(rows, { onConflict: 'lac,cid' });
 
         if (error) throw error;
 

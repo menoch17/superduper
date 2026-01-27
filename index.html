@@ -33,14 +33,20 @@ Example message types this tool can parse:
                 <button class="btn-secondary" onclick="clearAll()">Clear</button>
                 <button class="btn-secondary" onclick="loadSample()">Load Sample</button>
             </div>
-            <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load CSV</button>
-            <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
-            <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
-                style="font-size: 0.9rem; padding: 10px 15px;">Sync Cloud</button>
-            <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
-                style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
-            <div id="towerStatus" style="font-size: 0.9rem; color: var(--text-secondary);">
-                No tower list loaded
+            <div class="button-row"
+                style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 15px; display: flex; align-items: center; gap: 15px;">
+                <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
+                    onchange="handleTowerUpload(event)">
+                <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load
+                    CSV</button>
+                <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
+                <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
+                    style="font-size: 0.9rem; padding: 10px 15px;">Sync Cloud</button>
+                <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
+                    style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
+                <div id="towerStatus" style="font-size: 0.9rem; color: var(--text-secondary);">
+                    No tower list loaded
+                </div>
             </div>
         </div>
     </div>

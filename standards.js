@@ -58,7 +58,7 @@ const CDC_STANDARDS = {
             }
         ],
         commonFieldAliases: {
-            callId: ['callId', 'callIdentifier', 'contentIdentifier', 'call-ID', 'call id'],
+            callId: ['callId', 'callID', 'callIdentifier', 'contentIdentifier', 'call-ID', 'call id'],
             caseId: ['caseId', 'caseIdentifier', 'case-id'],
             timestamp: ['timestamp', 'eventTimestamp', 'timeStamp', 'time'],
             correlationID: ['correlationID', 'correlationId', 'correlation-id']

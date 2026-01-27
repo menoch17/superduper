@@ -19,11 +19,12 @@ class CDCAnalyzer {
                 this.messages.push(parsed);
 
                 // Group by callId
-                const callId = parsed.callId || 'Global-Events';
-                if (!this.calls.has(callId)) {
-                    this.calls.set(callId, this.createCallObject(callId));
+                const rawCallId = parsed.callId ? parsed.callId.trim() : null;
+                const callKey = rawCallId ? rawCallId.toLowerCase() : 'global-events';
+                if (!this.calls.has(callKey)) {
+                    this.calls.set(callKey, this.createCallObject(rawCallId || 'Global-Events'));
                 }
-                const call = this.calls.get(callId);
+                const call = this.calls.get(callKey);
                 call.messages.push(parsed);
                 this.extractCallInfo(parsed, call);
             }

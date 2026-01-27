@@ -113,13 +113,14 @@ class CDCAnalyzer {
             data: {}
         };
 
-        if (block.includes('termAttempt') && !block.includes('ims_3gpp')) result.type = 'termAttempt';
-        else if (block.includes('origAttempt')) result.type = 'origAttempt';
-        else if (block.includes('directSignalReporting')) result.type = 'directSignalReporting';
-        else if (block.includes('ccOpen')) result.type = 'ccOpen';
-        else if (block.includes('ccClose')) result.type = 'ccClose';
-        else if (block.includes('ims_3gpp_VoIP_answer') || (block.includes('answer') && block.includes('answering'))) result.type = 'answer';
-        else if (block.includes('ims_3gpp_VoIP_release') || (block.includes('release') && block.includes('cause'))) result.type = 'release';
+        if (block.includes('termAttempt') && !block.includes('ims_3GPP')) result.type = 'termAttempt';
+        else if (block.includes('origAttempt') && !block.includes('ims_3GPP')) result.type = 'origAttempt';
+        else if (block.includes('ims_3GPP_VoIP_origination')) result.type = 'origAttempt';
+        else if (block.includes('ims_3GPP_VoIP_answer') || (block.includes('answer') && block.includes('answering'))) result.type = 'answer';
+        else if (block.includes('ims_3GPP_VoIP_release') || (block.includes('release') && block.includes('cause'))) result.type = 'release';
+        else if (block.includes('ims_3GPP_VoIP_directSignalReporting') || block.includes('directSignalReporting')) result.type = 'directSignalReporting';
+        else if (block.includes('ims_3GPP_VoIP_ccOpen') || block.includes('ccOpen')) result.type = 'ccOpen';
+        else if (block.includes('ims_3GPP_VoIP_ccClose') || block.includes('ccClose')) result.type = 'ccClose';
         else if (block.includes('smsMessage')) result.type = 'smsMessage';
         else if (block.includes('mmsMessage')) result.type = 'mmsMessage';
 
@@ -300,7 +301,8 @@ class CDCAnalyzer {
         const locationMatches = block.matchAll(/location\[\d+\]\s*\n\s*locationType\s*=\s*(.+)\n\s*locationData\s*=\s*(.+)/gi);
         for (const match of locationMatches) {
             const locationData = { type: match[1].trim(), rawData: match[2].trim(), parsed: {} };
-            const cellMatch = locationData.rawData.match(/utran-cell-id-3gpp=(\d+)/i);
+            // Support both decimal and hex cell IDs
+            const cellMatch = locationData.rawData.match(/utran-cell-id-3gpp=([a-fA-F0-9]+)/i);
             if (cellMatch) {
                 locationData.parsed = this.parseCellId(cellMatch[1]);
             }
@@ -315,8 +317,21 @@ class CDCAnalyzer {
             result.mcc = cellId.substring(0, 3);
             result.mnc = cellId.substring(3, 6);
             const tacAndCell = cellId.substring(6);
-            result.lac = tacAndCell.substring(0, 4);
-            result.cellId = tacAndCell.substring(4);
+
+            // Check if it's hex (T-Mobile/Nokia style often uses hex for these fields)
+            const isHex = /[a-fA-F]/.test(tacAndCell);
+
+            if (isHex || tacAndCell.length > 8) {
+                // Heuristic: If it has hex chars or is long, treat as hex
+                result.lacHex = tacAndCell.substring(0, 4);
+                result.cidHex = tacAndCell.substring(4);
+                result.lac = parseInt(result.lacHex, 16);
+                result.cellId = parseInt(result.cidHex, 16);
+            } else {
+                // Fallback to standard decimal parsing if it looks like decimal
+                result.lac = tacAndCell.substring(0, 4);
+                result.cellId = tacAndCell.substring(4);
+            }
         }
         return result;
     }
@@ -1101,6 +1116,30 @@ async function uploadTowersToCloud() {
 }
 
 
+// --- Tab Management ---
+function switchTab(tabId) {
+    // Buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    const activeBtn = Array.from(document.querySelectorAll('.tab-btn'))
+        .find(btn => btn.getAttribute('onclick').includes(tabId));
+    if (activeBtn) activeBtn.classList.add('active');
+
+    // Panels
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.remove('active');
+    });
+    document.getElementById(tabId).classList.add('active');
+
+    // Special handling for map resize when switching to analyzer
+    if (tabId === 'analyzerTab') {
+        setTimeout(() => {
+            if (window.map) window.map.invalidateSize();
+        }, 100);
+    }
+}
+
 // Explicitly expose functions to the global scope to ensure buttons work
 window.analyzeCDC = analyzeCDC;
 window.switchCall = switchCall;
@@ -1112,6 +1151,7 @@ window.toggleSettings = toggleSettings;
 window.saveCloudSettings = saveCloudSettings;
 window.syncTowersFromCloud = syncTowersFromCloud;
 window.uploadTowersToCloud = uploadTowersToCloud;
+window.switchTab = switchTab;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

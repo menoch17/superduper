@@ -12,39 +12,48 @@
 
 <body>
     <div class="container">
-        <header>
-            <h1>CDC Messaging Analyzer</h1>
-            <p>CALEA/LAES Intercept Data Parser - Law Enforcement Use Only</p>
-        </header>
+        <nav class="tabs">
+            <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
+            <button class="tab-btn" onclick="switchTab('towerTab')">Tower Management</button>
+        </nav>
 
-        <div class="input-section">
-            <h2>Paste CDC Data Below</h2>
-            <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
+        <div id="analyzerTab" class="tab-panel active">
+            <div class="input-section">
+                <h2>Paste CDC Data Below</h2>
+                <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
 
 Example message types this tool can parse:
 - termAttempt / origAttempt (Call attempts)
+- IMS VoIP CII Version 3 (New format)
 - directSignalReporting (SIP signaling)
 - ccOpen / ccClose (Content channel)
-- answer (Call answered)
-- release (Call ended)
 - SMS/MMS messages"></textarea>
-            <div class="button-row">
-                <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
-                <button class="btn-secondary" onclick="clearAll()">Clear</button>
-                <button class="btn-secondary" onclick="loadSample()">Load Sample</button>
+                <div class="button-row">
+                    <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
+                    <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                    <button class="btn-secondary" onclick="loadSample()">Load Sample</button>
+                </div>
             </div>
-            <div class="button-row"
-                style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 15px; display: flex; align-items: center; gap: 15px;">
-                <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
-                    onchange="handleTowerUpload(event)">
-                <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load
-                    CSV</button>
-                <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
-                <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
-                    style="font-size: 0.9rem; padding: 10px 15px;">Sync Cloud</button>
-                <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
-                    style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
-                <div id="towerStatus" style="font-size: 0.9rem; color: var(--text-secondary);">
+        </div>
+
+        <div id="towerTab" class="tab-panel">
+            <div class="input-section">
+                <h2>Tower Database Management</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Manage your local tower CSV files and sync
+                    with the cloud database.</p>
+                <div class="button-row" style="display: flex; align-items: center; gap: 15px;">
+                    <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
+                        onchange="handleTowerUpload(event)">
+                    <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load Local
+                        CSV</button>
+                    <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
+                        style="font-size: 0.9rem; padding: 10px 15px;">Sync from Cloud</button>
+                    <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
+                        style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
+                    <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
+                </div>
+                <div id="towerStatus"
+                    style="margin-top: 15px; font-size: 0.95rem; color: var(--text-secondary); padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05);">
                     No tower list loaded
                 </div>
             </div>

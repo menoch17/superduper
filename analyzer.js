@@ -876,18 +876,21 @@ function parseTowerCSV(text) {
     if (lines.length < 2) return 0;
 
     // Detect delimiter
-    const delimiter = lines[0].includes(';') ? ';' : ',';
+    let delimiter = ',';
+    if (lines[0].includes('|')) delimiter = '|';
+    else if (lines[0].includes(';')) delimiter = ';';
+
     const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
     console.log(`Parsing CSV with delimiter "${delimiter}". Headers:`, headers);
 
     const colIdx = {
         lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
         cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
-        lat: headers.findIndex(h => h === 'lat' || h.includes('latitude') || h === 'y'),
-        lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x'),
+        lat: headers.findIndex(h => h === 'lat' || h.includes('latitude') || h === 'y' || h === 'site_latitude' || h === 'sector_latitude'),
+        lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x' || h === 'site_longitude' || h === 'sector_longitude'),
         address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
-        market: headers.findIndex(h => h === 'market'),
-        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id')
+        market: headers.findIndex(h => h === 'market' || h === 'market_name'),
+        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id' || h === 'site_id')
     };
 
     // If we can't find core columns, fail

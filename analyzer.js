@@ -875,12 +875,14 @@ function parseTowerCSV(text) {
     const lines = text.split('\n');
     if (lines.length < 2) return 0;
 
-    // Identify columns
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    console.log("Parsing CSV headers:", headers);
+    // Detect delimiter
+    const delimiter = lines[0].includes(';') ? ';' : ',';
+    const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
+    console.log(`Parsing CSV with delimiter "${delimiter}". Headers:`, headers);
+
     const colIdx = {
         lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
-        cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci'),
+        cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
         lat: headers.findIndex(h => h === 'lat' || h.includes('latitude') || h === 'y'),
         lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x'),
         address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
@@ -890,7 +892,7 @@ function parseTowerCSV(text) {
 
     // If we can't find core columns, fail
     if (colIdx.lac === -1 || colIdx.cid === -1) {
-        console.error("CSV Missing LAC or CID columns:", headers);
+        console.error("CSV Missing LAC or CID columns. Detected headers:", headers);
         return 0;
     }
 
@@ -898,15 +900,15 @@ function parseTowerCSV(text) {
     for (let i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue;
 
-        // Handle potential commas in double quotes (basic CSV parsing)
-        const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-        if (!row || row.length < 2) continue;
+        // Simple split by delimiter, handling basic quoting
+        const row = lines[i].split(delimiter).map(cell => cell.replace(/^"(.*)"$/, '$1').trim());
+        if (row.length < 2) continue;
 
-        const lac = row[colIdx.lac]?.replace(/"/g, '').trim();
-        const cid = row[colIdx.cid]?.replace(/"/g, '').trim();
-        const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]?.replace(/"/g, '')) : null;
-        const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]?.replace(/"/g, '')) : null;
-        const address = colIdx.address !== -1 ? row[colIdx.address]?.replace(/"/g, '').trim() : null;
+        const lac = row[colIdx.lac];
+        const cid = row[colIdx.cid];
+        const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]) : null;
+        const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]) : null;
+        const address = colIdx.address !== -1 ? row[colIdx.address] : null;
 
         if (lac && cid) {
             const key = `${lac}-${cid}`;
@@ -914,8 +916,8 @@ function parseTowerCSV(text) {
                 lat: isNaN(lat) ? null : lat,
                 lon: isNaN(lon) ? null : lon,
                 address: address || 'No address provided',
-                market: colIdx.market !== -1 ? row[colIdx.market]?.replace(/"/g, '').trim() : null,
-                siteId: colIdx.siteId !== -1 ? row[colIdx.siteId]?.replace(/"/g, '').trim() : null
+                market: colIdx.market !== -1 ? row[colIdx.market] : null,
+                siteId: colIdx.siteId !== -1 ? row[colIdx.siteId] : null
             });
             loadedCount++;
         }

@@ -445,6 +445,12 @@ let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
 let supabaseClient = null;
 
+// Hardcoded Supabase Configuration
+const SUPABASE_CONFIG = {
+    URL: 'https://euiqgrouyrtygfwtthpo.supabase.co',
+    KEY: 'sb_publishable_eysjqn_CJYqpP59sA8GELg_tZRT7qsS'
+};
+
 function analyzeCDC() {
     console.log("Analyzing CDC data...");
     const input = document.getElementById('cdcInput').value;
@@ -871,14 +877,15 @@ function parseTowerCSV(text) {
 
     // Identify columns
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    console.log("Parsing CSV headers:", headers);
     const colIdx = {
-        lac: headers.findIndex(h => h === 'lac' || h.includes('location area')),
-        cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier')),
-        lat: headers.findIndex(h => h === 'lat' || h.includes('latitude')),
-        lon: headers.findIndex(h => h === 'lon' || h.includes('longitude')),
-        address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location')),
+        lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
+        cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci'),
+        lat: headers.findIndex(h => h === 'lat' || h.includes('latitude') || h === 'y'),
+        lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x'),
+        address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
         market: headers.findIndex(h => h === 'market'),
-        siteId: headers.findIndex(h => h === 'site' || h === 'site id')
+        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id')
     };
 
     // If we can't find core columns, fail
@@ -944,8 +951,9 @@ function saveCloudSettings() {
 }
 
 function initializeSupabase() {
-    const url = localStorage.getItem('supabaseUrl');
-    const key = localStorage.getItem('supabaseKey');
+    // Use hardcoded config if nothing is in local storage
+    const url = localStorage.getItem('supabaseUrl') || SUPABASE_CONFIG.URL;
+    const key = localStorage.getItem('supabaseKey') || SUPABASE_CONFIG.KEY;
 
     if (url && key) {
         try {
@@ -953,7 +961,7 @@ function initializeSupabase() {
             if (window.supabase && window.supabase.createClient) {
                 if (!supabaseClient) {
                     supabaseClient = window.supabase.createClient(url, key);
-                    console.log("Supabase client initialized.");
+                    console.log("Supabase client initialized with:", url);
                 }
                 return true;
             } else {
@@ -1072,11 +1080,12 @@ window.uploadTowersToCloud = uploadTowersToCloud;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
-    // Populate settings if they exist
-    const url = localStorage.getItem('supabaseUrl');
-    const key = localStorage.getItem('supabaseKey');
-    if (url) document.getElementById('supabaseUrl').value = url;
-    if (key) document.getElementById('supabaseKey').value = key;
+    // Populate settings if they exist (local storage takes priority for overrides)
+    const url = localStorage.getItem('supabaseUrl') || SUPABASE_CONFIG.URL;
+    const key = localStorage.getItem('supabaseKey') || SUPABASE_CONFIG.KEY;
+
+    if (document.getElementById('supabaseUrl')) document.getElementById('supabaseUrl').value = url;
+    if (document.getElementById('supabaseKey')) document.getElementById('supabaseKey').value = key;
 
     // Try to sync automatically
     if (url && key) {

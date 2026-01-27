@@ -617,86 +617,62 @@ function displayResults(call, analyzer) {
         leafletMap = null;
         window.map = null;
     }
+    const reportControls = document.getElementById('reportControls');
+    if (reportControls) reportControls.style.display = 'flex';
 
-    let html = '';
-
-    // Summary Cards
-    html += '<div class="summary-grid">';
-
-    // Overview
-    html += `
-        <div class="summary-card highlight">
-            <h3>Call Overview</h3>
-            <div class="info-row"><span class="info-label">Type</span><span class="info-value"><span class="badge badge-info">${call.callType}</span></span></div>
-            <div class="info-row"><span class="info-label">Direction</span><span class="info-value"><span class="badge ${call.callDirection === 'Incoming' ? 'badge-success' : 'badge-warning'}">${call.callDirection || 'Unknown'}</span></span></div>
-            <div class="info-row"><span class="info-label">Status</span><span class="info-value"><span class="badge badge-success">${call.callStatus || 'Unknown'}</span></span></div>
-            <div class="info-row"><span class="info-label">Duration</span><span class="info-value">${analyzer.formatDuration(call.duration)}</span></div>
-            <div class="info-row"><span class="info-label">Case ID</span><span class="info-value">${call.caseId || 'N/A'}</span></div>
-        </div>
-    `;
-
-    // Calling Party
-    const callerCarrier = CDC_CONSTANTS.getCarrier(call.locations[0]?.parsed?.mcc, call.locations[0]?.parsed?.mnc);
-    html += `
-        <div class="summary-card caller">
-            <h3>Calling Party (FROM)</h3>
-            <div class="info-row"><span class="info-label">Number</span><span class="info-value phone-number">${analyzer.formatPhoneNumber(call.callingParty.phoneNumber)}</span></div>
-            <div class="info-row"><span class="info-label">Caller ID</span><span class="info-value caller-name">${call.callerName || 'N/A'}</span></div>
-            <div class="info-row"><span class="info-label">STIR/SHAKEN</span><span class="info-value"><span class="badge ${call.verificationStatus?.includes('Passed') ? 'badge-success' : 'badge-warning'}">${call.verificationStatus || 'N/A'}</span></span></div>
-            <div class="info-row"><span class="info-label">Carrier</span><span class="info-value">${callerCarrier}</span></div>
-        </div>
-    `;
-
-    // Called Party
-    html += `
-        <div class="summary-card called">
-            <h3>Called Party (TO)</h3>
-            <div class="info-row"><span class="info-label">Number</span><span class="info-value phone-number">${analyzer.formatPhoneNumber(call.calledParty.phoneNumber)}</span></div>
-            <div class="info-row"><span class="info-label">Carrier</span><span class="info-value">${call.calledParty.uri?.includes('vzims') ? 'Verizon' : 'Lookup Needed'}</span></div>
-        </div>
-    `;
-
-    // Timestamps
-    html += `
-        <div class="summary-card">
-            <h3>Key Events</h3>
-            <div class="info-row"><span class="info-label">Start</span><span class="info-value">${analyzer.formatTimestamp(call.startTime)}</span></div>
-            <div class="info-row"><span class="info-label">Answer</span><span class="info-value">${analyzer.formatTimestamp(call.answerTime)}</span></div>
-            <div class="info-row"><span class="info-label">End</span><span class="info-value">${analyzer.formatTimestamp(call.endTime)}</span></div>
-        </div>
-    `;
-    html += '</div>';
+    const summaryHTML = `
+        <div class="summary-grid">
+            <div class="summary-card highlight">
+                <h3>Call Overview</h3>
+                <div class="info-row"><span class="info-label">Type</span><span class="info-value"><span class="badge badge-info">${call.callType}</span></span></div>
+                <div class="info-row"><span class="info-label">Direction</span><span class="info-value"><span class="badge ${call.callDirection === 'Incoming' ? 'badge-success' : 'badge-warning'}">${call.callDirection || 'Unknown'}</span></span></div>
+                <div class="info-row"><span class="info-label">Status</span><span class="info-value"><span class="badge badge-success">${call.callStatus || 'Unknown'}</span></span></div>
+                <div class="info-row"><span class="info-label">Duration</span><span class="info-value">${analyzer.formatDuration(call.duration)}</span></div>
+                <div class="info-row"><span class="info-label">Case ID</span><span class="info-value">${call.caseId || 'N/A'}</span></div>
+            </div>
+            <div class="summary-card caller">
+                <h3>Calling Party (FROM)</h3>
+                <div class="info-row"><span class="info-label">Number</span><span class="info-value phone-number">${analyzer.formatPhoneNumber(call.callingParty.phoneNumber)}</span></div>
+                <div class="info-row"><span class="info-label">Caller ID</span><span class="info-value caller-name">${call.callerName || 'N/A'}</span></div>
+                <div class="info-row"><span class="info-label">STIR/SHAKEN</span><span class="info-value"><span class="badge ${call.verificationStatus?.includes('Passed') ? 'badge-success' : 'badge-warning'}">${call.verificationStatus || 'N/A'}</span></span></div>
+                <div class="info-row"><span class="info-label">Carrier</span><span class="info-value">${CDC_CONSTANTS.getCarrier(call.locations[0]?.parsed?.mcc, call.locations[0]?.parsed?.mnc)}</span></div>
+            </div>
+            <div class="summary-card called">
+                <h3>Called Party (TO)</h3>
+                <div class="info-row"><span class="info-label">Number</span><span class="info-value phone-number">${analyzer.formatPhoneNumber(call.calledParty.phoneNumber)}</span></div>
+                <div class="info-row"><span class="info-label">Carrier</span><span class="info-value">${call.calledParty.uri?.includes('vzims') ? 'Verizon' : 'Lookup Needed'}</span></div>
+            </div>
+            <div class="summary-card">
+                <h3>Key Events</h3>
+                <div class="info-row"><span class="info-label">Start</span><span class="info-value">${analyzer.formatTimestamp(call.startTime)}</span></div>
+                <div class="info-row"><span class="info-label">Answer</span><span class="info-value">${analyzer.formatTimestamp(call.answerTime)}</span></div>
+                <div class="info-row"><span class="info-label">End</span><span class="info-value">${analyzer.formatTimestamp(call.endTime)}</span></div>
+            </div>
+        </div>`;
 
     const firstMessageTimestamp = call.messages.length ? analyzer.parseTimestamp(call.messages[0].timestamp) : null;
+    const sections = [];
+    sections.push(createCollapsibleSection('Call Overview', summaryHTML, true, 'overview'));
 
-    // Sequence Diagram (Mermaid)
     if (call.messages.length > 0) {
-        html += `
-            <div class="timeline-section">
-                <h3>Call Flow Diagram</h3>
-                <div class="mermaid">
-                    sequenceDiagram
-                        autonumber
-                        participant T as Target Device
-                        participant C as Carrier Network
-                        participant P as Peer
-                        ${generateFlowMarkup(call, analyzer, firstMessageTimestamp)}
-                </div>
-            </div>
-        `;
+        const flowHTML = `
+            <div class="mermaid">
+                sequenceDiagram
+                    autonumber
+                    participant T as Target Device
+                    participant C as Carrier Network
+                    participant P as Peer
+                    ${generateFlowMarkup(call, analyzer, firstMessageTimestamp)}
+            </div>`;
+        sections.push(createCollapsibleSection('Call Flow Diagram', flowHTML, true, 'callFlow'));
     }
 
-    // Mapping Section
     if (call.locations.length > 0) {
-        html += `
-            <div class="location-section">
-                <h3>Cell Tower Mapping</h3>
-                <p style="color: var(--warning-color); font-size: 0.85rem; margin-bottom: 10px; font-weight: 600;">
-                    ⚠️ Note: These are estimated visual markers. For investigative precision, use the Cell ID links below.
-                </p>
-                <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
-                <div class="location-grid">
-                    ${call.locations.map(loc => {
+        const locationHTML = `
+            <p class="sub-heading-note">⚠️ These are estimated visual markers—please verify externally.</p>
+            <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
+            <div class="location-grid">
+                ${call.locations.map(loc => {
             const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
             const lacDecimal = getDecimalValue(loc.parsed.lac);
             const cellDecimal = getDecimalValue(loc.parsed.cellId);
@@ -704,38 +680,35 @@ function displayResults(call, analyzer) {
                 ? `https://opencellid.org/#action=locations.search&mcc=${loc.parsed.mcc}&mnc=${loc.parsed.mnc}&lac=${lacDecimal}&cellid=${cellDecimal}`
                 : '#';
             return `
-                        <div class="location-item" style="${tower ? 'border-left: 5px solid var(--success-color);' : ''}">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                <div>
-                                    <strong>${loc.type}</strong> ${tower ? '<span class="badge badge-success" style="font-size: 0.6rem;">Matched</span>' : ''}<br>
-                                    <small>${analyzer.formatTimestamp(loc.timestamp)}</small>
-                                </div>
-                                <a href="${openCellLink}" 
-                                   ${openCellLink !== '#' ? 'target="_blank"' : ''}
-                                   class="btn-secondary" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none;">
-                                   Verify on OpenCellID
-                                </a>
+                    <div class="location-item" style="${tower ? 'border-left: 5px solid var(--success-color);' : ''}">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <strong>${loc.type}</strong> ${tower ? '<span class="badge badge-success" style="font-size: 0.6rem;">Matched</span>' : ''}<br>
+                                <small>${analyzer.formatTimestamp(loc.timestamp)}</small>
                             </div>
-                            <div style="margin-top: 10px; font-family: monospace; font-size: 0.8rem;">
-                                LAC:${loc.parsed.lac} CID:${loc.parsed.cellId}
-                            </div>
-                            ${tower ? `
-                            <div style="margin-top: 5px; font-size: 0.85rem; color: var(--primary-color); font-weight: 600;">
-                                📍 ${tower.address}
-                                ${tower.siteId ? `<br><small style="color: var(--text-muted);">Site: ${tower.siteId} (${tower.market || 'Unknown Market'})</small>` : ''}
-                            </div>
-                            ` : ''}
+                            <a href="${openCellLink}"
+                               ${openCellLink !== '#' ? 'target="_blank"' : ''}
+                               class="btn-secondary" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none;">
+                               Verify on OpenCellID
+                            </a>
                         </div>
-                    `;
+                        <div style="margin-top: 10px; font-family: monospace; font-size: 0.8rem;">
+                            LAC:${loc.parsed.lac} CID:${loc.parsed.cellId}
+                        </div>
+                        ${tower ? `
+                        <div style="margin-top: 5px; font-size: 0.85rem; color: var(--primary-color); font-weight: 600;">
+                            📍 ${tower.address}
+                            ${tower.siteId ? `<br><small style="color: var(--text-muted);">Site: ${tower.siteId} (${tower.market || 'Unknown Market'})</small>` : ''}
+                        </div>
+                        ` : ''}
+                    </div>`;
         }).join('')}
-                </div>
-            </div>
-        `;
+            </div>`;
+        sections.push(createCollapsibleSection('Cell Tower Mapping', locationHTML, true, 'mapping'));
     }
 
-    // SMS Content
     if (call.smsData.length > 0) {
-        html += `
+        const smsHTML = `
             <div class="device-section">
                 <h3>SMS/MMS Messages (${call.smsData.length})</h3>
                 <div class="sms-list">
@@ -747,12 +720,11 @@ function displayResults(call, analyzer) {
                         </div>
                     `).join('')}
                 </div>
-            </div>
-        `;
+            </div>`;
+        sections.push(createCollapsibleSection('SMS/MMS Messages', smsHTML, false, 'sms'));
     }
 
-    // Technical Message Timeline
-    html += `
+    const techHTML = `
         <div class="timeline-section">
             <h3>Technical Message Timeline</h3>
             <div class="timeline-list">
@@ -764,13 +736,13 @@ function displayResults(call, analyzer) {
                     </div>
                 `).join('')}
             </div>
-        </div>
-    `;
+        </div>`;
+    sections.push(createCollapsibleSection('Technical Message Timeline', techHTML, true, 'tech'));
 
-    html += renderStandardsSection(call);
+    const standardsContent = renderStandardsSection(call);
+    if (standardsContent) sections.push(createCollapsibleSection('Standards Intelligence', standardsContent, false, 'standards'));
 
-    // Raw Records Section
-    html += `
+    const rawHTML = `
         <div class="technical-section">
             <h3>Raw CDC Records</h3>
             <div class="raw-export">
@@ -780,12 +752,12 @@ function displayResults(call, analyzer) {
                    </div>
                 `).join('<hr>')}
             </div>
-        </div>
-    `;
+        </div>`;
+    sections.push(createCollapsibleSection('Raw CDC Records', rawHTML, false, 'raw'));
 
-    container.innerHTML = html;
+    container.innerHTML = sections.join('');
+    setupCollapsibles();
 
-    // Render Mermaid and Map
     setTimeout(() => {
         if (typeof mermaid !== 'undefined') {
             try {
@@ -820,6 +792,43 @@ function renderStandardsSection(call) {
             </div>
         </div>
     `;
+}
+
+function createCollapsibleSection(title, content, isOpen = false, idSuffix = '') {
+    const key = idSuffix || title.toLowerCase().replace(/[^\w]+/g, '-');
+    const arrow = isOpen ? '▼' : '▶';
+    return `
+        <section class="collapsible-section ${isOpen ? 'expanded' : 'collapsed'}">
+            <div class="collapsible-header">
+                <button type="button" class="collapse-toggle" aria-expanded="${isOpen}" data-target="${key}">${arrow}</button>
+                <span class="collapsible-title">${title}</span>
+            </div>
+            <div class="collapsible-content" data-content="${key}" style="display:${isOpen ? 'block' : 'none'};">
+                ${content}
+            </div>
+        </section>
+    `;
+}
+
+function setupCollapsibles() {
+    document.querySelectorAll('.collapse-toggle').forEach(btn => {
+        if (btn.dataset.listenerAttached) return;
+        btn.dataset.listenerAttached = 'true';
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.target;
+            const content = document.querySelector(`.collapsible-content[data-content="${target}"]`);
+            if (!content) return;
+            const isOpen = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!isOpen));
+            btn.textContent = isOpen ? '▶' : '▼';
+            content.style.display = isOpen ? 'none' : 'block';
+            const section = btn.closest('.collapsible-section');
+            if (section) {
+                section.classList.toggle('expanded', !isOpen);
+                section.classList.toggle('collapsed', isOpen);
+            }
+        });
+    });
 }
 
 function createStandardCard(standard, listKey, activeTypes) {

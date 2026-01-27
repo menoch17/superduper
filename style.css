@@ -193,6 +193,47 @@ button {
     border-left: 5px solid var(--warning-color);
 }
 
+.collapsible-section {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
+}
+
+.collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.collapse-toggle {
+    border: none;
+    background: transparent;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0;
+}
+
+.collapsible-title {
+    font-weight: 600;
+    color: var(--primary-color);
+    font-size: 1rem;
+}
+
+.collapsible-content {
+    padding: 0 16px 16px;
+}
+
+.sub-heading-note {
+    color: var(--warning-color);
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
 .standards-section {
     margin-top: 25px;
 }

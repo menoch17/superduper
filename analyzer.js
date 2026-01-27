@@ -769,5 +769,13 @@ T1.678 Version 4
             recipient = +16313754560
             userInput = See you there at 5pm.
             originating`;
-    console.log("Sample data loaded.");
 }
+
+// Explicitly expose functions to the global scope to ensure buttons work
+window.analyzeCDC = analyzeCDC;
+window.switchCall = switchCall;
+window.clearAll = clearAll;
+window.loadSample = loadSample;
+window.exportCSV = exportCSV;
+
+console.log("CDC Analyzer script v1.1 loaded and ready.");

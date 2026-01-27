@@ -550,23 +550,21 @@ function displayResults(call, analyzer) {
         `;
     }
 
-    // Mapping Section
-    if (call.locations.length > 0) {
-        html += `
-            <div class="location-section">
-                <h3>Cell Tower Mapping</h3>
-                <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
-                <div class="location-grid">
-                    ${call.locations.map(loc => `
+    <div class="location-section">
+        <h3>Cell Tower Mapping</h3>
+        <p style="color: var(--warning-color); font-size: 0.85rem; margin-bottom: 10px; font-weight: 600;">
+            ⚠️ Note: Real-world mapping requires a GIS database. These coordinates are derived from LAC/CellID bits for visual estimation.
+        </p>
+        <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
+        <div class="location-grid">
+            ${call.locations.map(loc => `
                         <div class="location-item">
                             <strong>${loc.type}</strong> (${analyzer.formatTimestamp(loc.timestamp)})<br>
                             MCC: ${loc.parsed.mcc} MNC: ${loc.parsed.mnc} LAC: ${loc.parsed.lac} CellID: ${loc.parsed.cellId}
                         </div>
                     `).join('')}
-                </div>
-            </div>
-        `;
-    }
+        </div>
+    </div>
 
     // SMS Content
     if (call.smsData.length > 0) {
@@ -600,12 +598,47 @@ function displayResults(call, analyzer) {
 
 function generateFlowMarkup(call) {
     let markup = "";
-    call.sipMessages.forEach(msg => {
-        const p = msg.parsed;
-        if (p.isRequest) {
-            markup += `T->>C: ${p.method}\n`;
-        } else {
-            markup += `C-->>T: ${p.statusCode} ${p.statusText}\n`;
+    // We want to show the flow between Target (T), Carrier (C), and Peer (P)
+    // CDC events represent what the carrier (C) sees happening with Target (T) and Peer (P)
+
+    call.messages.forEach(msg => {
+        switch (msg.type) {
+            case 'termAttempt':
+                markup += `Note over T,P: Incoming Call Attempt\n`;
+                markup += `P->>C: Setup Request\n`;
+                markup += `C->>T: termAttempt\n`;
+                break;
+            case 'origAttempt':
+                markup += `Note over T,P: Outgoing Call Attempt\n`;
+                markup += `T->>C: origAttempt\n`;
+                markup += `C->>P: Setup Request\n`;
+                break;
+            case 'directSignalReporting':
+                const sip = msg.data.sipMessages?.[0]?.parsed;
+                if (sip) {
+                    if (sip.isRequest) {
+                        markup += `T->>C: SIP ${sip.method}\n`;
+                    } else {
+                        markup += `C-->>T: SIP ${sip.statusCode} ${sip.statusText}\n`;
+                    }
+                }
+                break;
+            case 'ccOpen':
+                markup += `C-->>T: ccOpen (Audio Path Open)\n`;
+                break;
+            case 'ccClose':
+                markup += `C-->>T: ccClose (Audio Path Closed)\n`;
+                break;
+            case 'answer':
+                markup += `Note right of T: Call Answered\n`;
+                markup += `T->>C: answer\n`;
+                markup += `C->>P: Answer Response\n`;
+                break;
+            case 'release':
+                markup += `Note over T,P: Call Released (${msg.data.cause || 'Normal'})\n`;
+                markup += `T->>C: release\n`;
+                markup += `C->>P: Release Notification\n`;
+                break;
         }
     });
     return markup;

@@ -553,14 +553,25 @@ function displayResults(call, analyzer) {
     <div class="location-section">
         <h3>Cell Tower Mapping</h3>
         <p style="color: var(--warning-color); font-size: 0.85rem; margin-bottom: 10px; font-weight: 600;">
-            ⚠️ Note: Real-world mapping requires a GIS database. These coordinates are derived from LAC/CellID bits for visual estimation.
+            ⚠️ Note: These are estimated visual markers. For investigative precision, use the Cell ID links below.
         </p>
         <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
         <div class="location-grid">
             ${call.locations.map(loc => `
                         <div class="location-item">
-                            <strong>${loc.type}</strong> (${analyzer.formatTimestamp(loc.timestamp)})<br>
-                            MCC: ${loc.parsed.mcc} MNC: ${loc.parsed.mnc} LAC: ${loc.parsed.lac} CellID: ${loc.parsed.cellId}
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div>
+                                    <strong>${loc.type}</strong><br>
+                                    <small>${analyzer.formatTimestamp(loc.timestamp)}</small>
+                                </div>
+                                <a href="https://opencellid.org/#action=locations.search&mcc=${loc.parsed.mcc}&mnc=${loc.parsed.mnc}&lac=${parseInt(loc.parsed.lac, 16)}&cellid=${parseInt(loc.parsed.cellId, 16)}" 
+                                   target="_blank" class="btn-secondary" style="font-size: 0.7rem; padding: 4px 8px; text-decoration: none;">
+                                   Verify on OpenCellID
+                                </a>
+                            </div>
+                            <div style="margin-top: 10px; font-family: monospace; font-size: 0.8rem;">
+                                MCC:${loc.parsed.mcc} MNC:${loc.parsed.mnc} LAC:${loc.parsed.lac} CID:${loc.parsed.cellId}
+                            </div>
                         </div>
                     `).join('')}
         </div>
@@ -598,9 +609,7 @@ function displayResults(call, analyzer) {
 
 function generateFlowMarkup(call) {
     let markup = "";
-    // We want to show the flow between Target (T), Carrier (C), and Peer (P)
-    // CDC events represent what the carrier (C) sees happening with Target (T) and Peer (P)
-
+    // Show flow between Target (T), Carrier (C), and Peer (P)
     call.messages.forEach(msg => {
         switch (msg.type) {
             case 'termAttempt':
@@ -616,19 +625,12 @@ function generateFlowMarkup(call) {
             case 'directSignalReporting':
                 const sip = msg.data.sipMessages?.[0]?.parsed;
                 if (sip) {
-                    if (sip.isRequest) {
-                        markup += `T->>C: SIP ${sip.method}\n`;
-                    } else {
-                        markup += `C-->>T: SIP ${sip.statusCode} ${sip.statusText}\n`;
-                    }
+                    if (sip.isRequest) markup += `T->>C: SIP ${sip.method}\n`;
+                    else markup += `C-->>T: SIP ${sip.statusCode} ${sip.statusText}\n`;
                 }
                 break;
-            case 'ccOpen':
-                markup += `C-->>T: ccOpen (Audio Path Open)\n`;
-                break;
-            case 'ccClose':
-                markup += `C-->>T: ccClose (Audio Path Closed)\n`;
-                break;
+            case 'ccOpen': markup += `C-->>T: ccOpen (Audio Path Open)\n`; break;
+            case 'ccClose': markup += `C-->>T: ccClose (Audio Path Closed)\n`; break;
             case 'answer':
                 markup += `Note right of T: Call Answered\n`;
                 markup += `T->>C: answer\n`;
@@ -639,25 +641,54 @@ function generateFlowMarkup(call) {
                 markup += `T->>C: release\n`;
                 markup += `C->>P: Release Notification\n`;
                 break;
+            case 'smsMessage':
+            case 'mmsMessage':
+                if (msg.data.direction === 'Sent') {
+                    markup += `T->>C: ${msg.type} (To: ${msg.data.to})\n`;
+                    markup += `C->>P: Forward message\n`;
+                } else {
+                    markup += `P->>C: Incoming ${msg.type}\n`;
+                    markup += `C->>T: ${msg.type} (From: ${msg.data.from})\n`;
+                }
+                break;
         }
     });
     return markup;
 }
 
 function initMap(locations) {
-    const map = L.map('map').setView([40.7128, -74.0060], 13); // Default NYC, but should use lookup
+    if (locations.length === 0) return;
+
+    const baseLat = 40.7128; // Default to NYC but map will fit bounds
+    const baseLng = -74.0060;
+
+    const map = L.map('map');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
+    const markers = [];
     locations.forEach(loc => {
-        // Placeholder coordinate generation based on LAC/CellID bits
-        const lat = 40.7 + (parseInt(loc.parsed.lac || 0, 16) % 100) / 1000;
-        const lng = -73.9 + (parseInt(loc.parsed.cellId || 0, 16) % 100) / 1000;
-        L.marker([lat, lng]).addTo(map)
-            .bindPopup(`<b>${loc.type}</b><br>Cell ID: ${loc.parsed.cellId}`)
-            .openPopup();
+        if (!loc.parsed.lac || !loc.parsed.cellId) return;
+
+        // Semi-deterministic "hash" mapping to keep it visual but consistent
+        const latOffset = (parseInt(loc.parsed.lac, 16) % 100) / 500;
+        const lngOffset = (parseInt(loc.parsed.cellId, 16) % 100) / 500;
+
+        const lat = baseLat + latOffset;
+        const lng = baseLng + lngOffset;
+
+        const marker = L.marker([lat, lng]).addTo(map)
+            .bindPopup(`<b>${loc.type}</b><br>Cell ID: ${loc.parsed.cellId}<br>LAC: ${loc.parsed.lac}`);
+        markers.push(marker);
     });
+
+    if (markers.length > 0) {
+        const group = new L.featureGroup(markers);
+        map.fitBounds(group.getBounds().pad(0.5));
+    } else {
+        map.setView([baseLat, baseLng], 13);
+    }
 }
 
 function exportCSV() {

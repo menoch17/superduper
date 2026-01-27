@@ -214,6 +214,10 @@ class CDCAnalyzer {
             if (uriMatch) data.calling.uri = uriMatch[1].trim();
             const phoneMatch = data.calling.uri?.match(/\+(\d+)/);
             if (phoneMatch) data.calling.phoneNumber = '+' + phoneMatch[1];
+            const fallbackPhone = this.extractPhoneNumber(callingSection[1]);
+            if (fallbackPhone && !data.calling.phoneNumber) {
+                data.calling.phoneNumber = fallbackPhone;
+            }
 
             const headerMatches = callingSection[1].matchAll(/sipHeader\[\d+\]\s*=\s*(.+)/gi);
             data.calling.headers = [];
@@ -231,6 +235,10 @@ class CDCAnalyzer {
             if (uriMatch) data.called.uri = uriMatch[1].trim();
             const phoneMatch = data.called.uri?.match(/\+(\d+)/);
             if (phoneMatch) data.called.phoneNumber = '+' + phoneMatch[1];
+            const fallbackPhone = this.extractPhoneNumber(calledSection[1]);
+            if (fallbackPhone && !data.called.phoneNumber) {
+                data.called.phoneNumber = fallbackPhone;
+            }
         }
 
         const sdpMatch = block.match(/sdp\s*=\s*([\s\S]*?)(?=\n\s*\n|\n[a-zA-Z])/);
@@ -239,6 +247,22 @@ class CDCAnalyzer {
             data.codecs = this.parseCodecsFromSDP(data.sdp);
         }
         return data;
+    }
+
+    extractPhoneNumber(text) {
+        if (!text) return null;
+        const patterns = [
+            /(?:dn|msisdn|mdn)\s*=\s*(\+?\d{7,})/i,
+            /sip:\+?(\d{7,})/i,
+            /tel:\+?(\d{7,})/i,
+            /uri\[0\]\s*=\s*tel:\+?(\d{7,})/i,
+            /uri\[0\]\s*=\s*sip:\+?(\d{7,})/i
+        ];
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) return match[1].startsWith('+') ? match[1] : '+' + match[1];
+        }
+        return null;
     }
 
     parseSIPMessage(block) {

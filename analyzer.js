@@ -994,10 +994,11 @@ function createSectorLayer(tower, lat, lng) {
 
     if (arcPoints.length > 0) {
         const arcLayer = L.polyline(arcPoints, {
-            color: '#2b6cb0',
-            weight: 2,
-            dashArray: '8,4',
-            opacity: 0.85
+            color: '#c05621',
+            weight: 3,
+            dashArray: '10,6',
+            opacity: 0.85,
+            lineCap: 'round'
         });
         layerGroup.addLayer(arcLayer);
     }

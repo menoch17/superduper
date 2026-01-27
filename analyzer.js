@@ -667,6 +667,8 @@ function displayResults(call, analyzer) {
     `;
     html += '</div>';
 
+    const firstMessageTimestamp = call.messages.length ? analyzer.parseTimestamp(call.messages[0].timestamp) : null;
+
     // Sequence Diagram (Mermaid)
     if (call.messages.length > 0) {
         html += `
@@ -678,7 +680,7 @@ function displayResults(call, analyzer) {
                         participant T as Target Device
                         participant C as Carrier Network
                         participant P as Peer
-                        ${generateFlowMarkup(call)}
+                        ${generateFlowMarkup(call, analyzer, firstMessageTimestamp)}
                 </div>
             </div>
         `;
@@ -853,52 +855,65 @@ function createStandardCard(standard, listKey, activeTypes) {
     `;
 }
 
-function generateFlowMarkup(call) {
+function generateFlowMarkup(call, analyzer, baseTimestamp) {
     let markup = "";
     call.messages.forEach(msg => {
+        const relTime = getRelativeTimeSuffix(analyzer, baseTimestamp, msg.timestamp);
         switch (msg.type) {
             case 'termAttempt':
                 markup += `Note over T,P: Incoming Call Attempt\n`;
                 markup += `P->>C: Setup Request\n`;
-                markup += `C->>T: termAttempt\n`;
+                markup += `C->>T: termAttempt${relTime}\n`;
                 break;
             case 'origAttempt':
                 markup += `Note over T,P: Outgoing Call Attempt\n`;
                 markup += `T->>C: origAttempt\n`;
-                markup += `C->>P: Setup Request\n`;
+                markup += `C->>P: Setup Request${relTime}\n`;
                 break;
             case 'directSignalReporting':
                 const sip = msg.data.sipMessages?.[0]?.parsed;
                 if (sip) {
-                    if (sip.isRequest) markup += `T->>C: SIP ${sip.method}\n`;
-                    else markup += `C-->>T: SIP ${sip.statusCode} ${sip.statusText}\n`;
+                    if (sip.isRequest) markup += `T->>C: SIP ${sip.method}${relTime}\n`;
+                    else markup += `C-->>T: SIP ${sip.statusCode} ${sip.statusText}${relTime}\n`;
                 }
                 break;
-            case 'ccOpen': markup += `C-->>T: ccOpen (Audio Path Open)\n`; break;
-            case 'ccClose': markup += `C-->>T: ccClose (Audio Path Closed)\n`; break;
+            case 'ccOpen': markup += `C-->>T: ccOpen (Audio Path Open)${relTime}\n`; break;
+            case 'ccClose': markup += `C-->>T: ccClose (Audio Path Closed)${relTime}\n`; break;
             case 'answer':
                 markup += `Note right of T: Call Answered\n`;
-                markup += `T->>C: answer\n`;
-                markup += `C->>P: Answer Response\n`;
+                markup += `T->>C: answer${relTime}\n`;
+                markup += `C->>P: Answer Response${relTime}\n`;
                 break;
             case 'release':
                 markup += `Note over T,P: Call Released (${msg.data.cause || 'Normal'})\n`;
-                markup += `T->>C: release\n`;
-                markup += `C->>P: Release Notification\n`;
+                markup += `T->>C: release${relTime}\n`;
+                markup += `C->>P: Release Notification${relTime}\n`;
                 break;
             case 'smsMessage':
             case 'mmsMessage':
                 if (msg.data.direction === 'Sent') {
-                    markup += `T->>C: ${msg.type} (To: ${msg.data.to})\n`;
-                    markup += `C->>P: Forward message\n`;
+                    markup += `T->>C: ${msg.type} (To: ${msg.data.to})${relTime}\n`;
+                    markup += `C->>P: Forward message${relTime}\n`;
                 } else {
-                    markup += `P->>C: Incoming ${msg.type}\n`;
-                    markup += `C->>T: ${msg.type} (From: ${msg.data.from})\n`;
+                    markup += `P->>C: Incoming ${msg.type}${relTime}\n`;
+                    markup += `C->>T: ${msg.type} (From: ${msg.data.from})${relTime}\n`;
                 }
                 break;
         }
     });
     return markup;
+}
+
+function getRelativeTimeSuffix(analyzer, baseTimestamp, messageTimestamp) {
+    if (!baseTimestamp || !messageTimestamp) return '';
+    const current = analyzer.parseTimestamp(messageTimestamp);
+    if (!current) return '';
+    const deltaMs = current.getTime() - baseTimestamp.getTime();
+    if (Number.isNaN(deltaMs) || deltaMs < 0) return '';
+    const totalSeconds = Math.floor(deltaMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+    return ` [+${minutes}:${seconds}]`;
 }
 
 function initMap(locations) {

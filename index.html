@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CDC Messaging Analyzer - Law Enforcement Tool</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>CDC Messaging Analyzer</h1>
+            <p>CALEA/LAES Intercept Data Parser - Law Enforcement Use Only</p>
+        </header>
+
+        <div class="input-section">
+            <h2>Paste CDC Data Below</h2>
+            <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
+
+Example message types this tool can parse:
+- termAttempt / origAttempt (Call attempts)
+- directSignalReporting (SIP signaling)
+- ccOpen / ccClose (Content channel)
+- answer (Call answered)
+- release (Call ended)
+- SMS/MMS messages"></textarea>
+            <div class="button-row">
+                <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
+                <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                <button class="btn-secondary" onclick="loadSample()">Load Sample</button>
+            </div>
+        </div>
+
+        <div class="results-container" id="resultsContainer">
+            <!-- Results will be inserted here -->
+        </div>
+    </div>
+
+    <script src="analyzer.js"></script>
+</body>
+
+</html>

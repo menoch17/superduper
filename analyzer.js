@@ -79,20 +79,14 @@ class CDCAnalyzer {
     }
 
     splitIntoMessages(data) {
-        const messageTypes = [
-            'termAttempt', 'origAttempt', 'directSignalReporting',
-            'ccOpen', 'ccClose', 'answer', 'release',
-            'ims_3gpp_VoIP_answer', 'ims_3gpp_VoIP_release',
-            'smsMessage', 'mmsMessage'
-        ];
-
         const blocks = [];
         const lines = data.split('\n');
         let currentBlock = [];
 
         for (const line of lines) {
             const trimmed = line.trim();
-            const isNewHeader = (trimmed.match(/^[A-Za-z].*Version \d/));
+            // Detect start of a new record (Type followed by Version)
+            const isNewHeader = /^[A-Za-z].*Version \d/.test(trimmed);
 
             if (isNewHeader && currentBlock.length > 0) {
                 blocks.push(currentBlock.join('\n'));
@@ -363,7 +357,8 @@ class CDCAnalyzer {
                         if (sip.parsed?.headers) {
                             const pai = sip.parsed.headers['P-Asserted-Identity'];
                             if (pai) {
-                                const nameMatch = (Array.isArray(pai) ? pai[0] : pai).match(/"([^"]+)"/);
+                                const nameVal = Array.isArray(pai) ? pai[0] : pai;
+                                const nameMatch = nameVal.match(/"([^"]+)"/);
                                 if (nameMatch && !call.callerName) call.callerName = nameMatch[1];
                             }
                             const ua = sip.parsed.headers['User-Agent'];
@@ -378,10 +373,11 @@ class CDCAnalyzer {
                             }
                             const pani = sip.parsed.headers['P-Access-Network-Info'];
                             if (pani) {
-                                const cellMatch = (Array.isArray(pani) ? pani[0] : pani).match(/utran-cell-id-3gpp=(\w+)/i);
+                                const paniVal = Array.isArray(pani) ? pani[0] : pani;
+                                const cellMatch = paniVal.match(/utran-cell-id-3gpp=(\w+)/i);
                                 if (cellMatch) {
                                     if (!call.locations.find(l => l.parsed?.fullCellId === cellMatch[1])) {
-                                        call.locations.push({ type: 'P-A-N-I-Header', rawData: pani, parsed: this.parseCellId(cellMatch[1]), timestamp: message.timestamp });
+                                        call.locations.push({ type: 'P-A-N-I-Header', rawData: paniVal, parsed: this.parseCellId(cellMatch[1]), timestamp: message.timestamp });
                                     }
                                 }
                             }
@@ -448,28 +444,39 @@ class CDCAnalyzer {
 let currentAnalyzer = null;
 
 function analyzeCDC() {
+    console.log("Analyzing CDC data...");
     const input = document.getElementById('cdcInput').value;
-    if (!input.trim()) return;
+    if (!input.trim()) {
+        alert("Please paste some CDC data first.");
+        return;
+    }
 
-    currentAnalyzer = new CDCAnalyzer(input);
-    currentAnalyzer.parse();
+    try {
+        currentAnalyzer = new CDCAnalyzer(input);
+        currentAnalyzer.parse();
 
-    const selector = document.getElementById('callSelector');
-    selector.innerHTML = '';
+        const selector = document.getElementById('callSelector');
+        selector.innerHTML = '';
 
-    currentAnalyzer.calls.forEach((call, id) => {
-        const option = document.createElement('option');
-        option.value = id;
-        const time = call.startTime ? currentAnalyzer.formatTimestamp(call.startTime) : 'No Start Time';
-        const parties = `${call.callingParty.phoneNumber || 'Unknown'} -> ${call.calledParty.phoneNumber || 'Unknown'}`;
-        option.textContent = `[${call.callType}] ${time} | ${parties}`;
-        selector.appendChild(option);
-    });
+        if (currentAnalyzer.calls.size === 0) {
+            alert("No recognizable CDC messages found. Check your data format.");
+            return;
+        }
 
-    document.getElementById('callSelectorContainer').style.display = currentAnalyzer.calls.size > 0 ? 'flex' : 'none';
+        currentAnalyzer.calls.forEach((call, id) => {
+            const option = document.createElement('option');
+            option.value = id;
+            const time = call.startTime ? currentAnalyzer.formatTimestamp(call.startTime) : 'No Start Time';
+            const parties = `${call.callingParty.phoneNumber || 'Unknown'} -> ${call.calledParty.phoneNumber || 'Unknown'}`;
+            option.textContent = `[${call.callType}] ${time} | ${parties}`;
+            selector.appendChild(option);
+        });
 
-    if (currentAnalyzer.calls.size > 0) {
+        document.getElementById('callSelectorContainer').style.display = 'flex';
         switchCall(selector.value);
+    } catch (err) {
+        console.error("Analysis failed:", err);
+        alert("An error occurred during analysis. Check the console for details.");
     }
 }
 
@@ -495,7 +502,7 @@ function displayResults(call, analyzer) {
             <h3>Call Overview</h3>
             <div class="info-row"><span class="info-label">Type</span><span class="info-value"><span class="badge badge-info">${call.callType}</span></span></div>
             <div class="info-row"><span class="info-label">Direction</span><span class="info-value"><span class="badge ${call.callDirection === 'Incoming' ? 'badge-success' : 'badge-warning'}">${call.callDirection || 'Unknown'}</span></span></div>
-            <div class="info-row"><span class="info-label">Status</span><span class="info-value"><span class="badge badge-success">${call.callStatus || 'Known'}</span></span></div>
+            <div class="info-row"><span class="info-label">Status</span><span class="info-value"><span class="badge badge-success">${call.callStatus || 'Unknown'}</span></span></div>
             <div class="info-row"><span class="info-label">Duration</span><span class="info-value">${analyzer.formatDuration(call.duration)}</span></div>
             <div class="info-row"><span class="info-label">Case ID</span><span class="info-value">${call.caseId || 'N/A'}</span></div>
         </div>
@@ -605,7 +612,9 @@ function displayResults(call, analyzer) {
     // Render Mermaid and Map
     setTimeout(() => {
         if (typeof mermaid !== 'undefined') {
-            mermaid.init();
+            try {
+                mermaid.init();
+            } catch (e) { console.error("Mermaid init failed", e); }
         }
         if (call.locations.length > 0) initMap(call.locations);
     }, 100);
@@ -613,7 +622,6 @@ function displayResults(call, analyzer) {
 
 function generateFlowMarkup(call) {
     let markup = "";
-    // Show flow between Target (T), Carrier (C), and Peer (P)
     call.messages.forEach(msg => {
         switch (msg.type) {
             case 'termAttempt':
@@ -663,36 +671,33 @@ function generateFlowMarkup(call) {
 function initMap(locations) {
     if (locations.length === 0 || typeof L === 'undefined') return;
 
-    const baseLat = 40.7128; // Default to NYC but map will fit bounds
-    const baseLng = -74.0060;
+    try {
+        const baseLat = 40.7128;
+        const baseLng = -74.0060;
+        const map = L.map('map');
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
 
-    const map = L.map('map');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+        const markers = [];
+        locations.forEach(loc => {
+            if (!loc.parsed.lac || !loc.parsed.cellId) return;
+            const latOffset = (parseInt(loc.parsed.lac, 16) % 100) / 500;
+            const lngOffset = (parseInt(loc.parsed.cellId, 16) % 100) / 500;
+            const lat = baseLat + latOffset;
+            const lng = baseLng + lngOffset;
+            const marker = L.marker([lat, lng]).addTo(map)
+                .bindPopup(`<b>${loc.type}</b><br>Cell ID: ${loc.parsed.cellId}<br>LAC: ${loc.parsed.lac}`);
+            markers.push(marker);
+        });
 
-    const markers = [];
-    locations.forEach(loc => {
-        if (!loc.parsed.lac || !loc.parsed.cellId) return;
-
-        // Semi-deterministic "hash" mapping to keep it visual but consistent
-        const latOffset = (parseInt(loc.parsed.lac, 16) % 100) / 500;
-        const lngOffset = (parseInt(loc.parsed.cellId, 16) % 100) / 500;
-
-        const lat = baseLat + latOffset;
-        const lng = baseLng + lngOffset;
-
-        const marker = L.marker([lat, lng]).addTo(map)
-            .bindPopup(`<b>${loc.type}</b><br>Cell ID: ${loc.parsed.cellId}<br>LAC: ${loc.parsed.lac}`);
-        markers.push(marker);
-    });
-
-    if (markers.length > 0) {
-        const group = new L.featureGroup(markers);
-        map.fitBounds(group.getBounds().pad(0.5));
-    } else {
-        map.setView([baseLat, baseLng], 13);
-    }
+        if (markers.length > 0) {
+            const group = new L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.5));
+        } else {
+            map.setView([baseLat, baseLng], 13);
+        }
+    } catch (e) { console.error("Map init failed", e); }
 }
 
 function exportCSV() {
@@ -764,4 +769,5 @@ T1.678 Version 4
             recipient = +16313754560
             userInput = See you there at 5pm.
             originating`;
+    console.log("Sample data loaded.");
 }

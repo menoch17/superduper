@@ -33,26 +33,56 @@ Example message types this tool can parse:
                 <button class="btn-secondary" onclick="clearAll()">Clear</button>
                 <button class="btn-secondary" onclick="loadSample()">Load Sample</button>
             </div>
-        </div>
-
-        <div class="results-container" id="resultsContainer">
-            <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
-                <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call / Event:</label>
-                <select id="callSelector" onchange="switchCall(this.value)"
-                    style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
-                <button class="btn-secondary" onclick="exportCSV()"
-                    style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
-            </div>
-            <div id="callDetails">
-                <!-- Results will be inserted here -->
+            <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load CSV</button>
+            <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
+            <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
+                style="font-size: 0.9rem; padding: 10px 15px;">Sync Cloud</button>
+            <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
+                style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
+            <div id="towerStatus" style="font-size: 0.9rem; color: var(--text-secondary);">
+                No tower list loaded
             </div>
         </div>
     </div>
 
+    <div class="results-container" id="resultsContainer">
+        <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
+            <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call / Event:</label>
+            <select id="callSelector" onchange="switchCall(this.value)"
+                style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
+            <button class="btn-secondary" onclick="exportCSV()"
+                style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
+        </div>
+        <div id="callDetails">
+            <!-- Results will be inserted here -->
+        </div>
+    </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="constants.js"></script>
     <script src="analyzer.js"></script>
+
+    <!-- Cloud Settings Panel -->
+    <div id="cloudSettings" class="settings-modal" style="display: none;">
+        <div class="settings-content">
+            <h3>Cloud Configuration (Supabase)</h3>
+            <div class="settings-group">
+                <label for="supabaseUrl">Supabase URL</label>
+                <input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co">
+            </div>
+            <div class="settings-group">
+                <label for="supabaseKey">Anon Key</label>
+                <input type="password" id="supabaseKey" placeholder="your-anon-key">
+            </div>
+            <div class="settings-buttons">
+                <button class="btn-primary" onclick="saveCloudSettings()">Save & Connect</button>
+                <button class="btn-secondary" onclick="toggleSettings()">Close</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

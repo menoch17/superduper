@@ -440,8 +440,10 @@ class CDCAnalyzer {
     }
 }
 
-// Global state for multi-call UI
+// Global state for multi-call UI and tower data
 let currentAnalyzer = null;
+let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
+let supabase = null;
 
 function analyzeCDC() {
     console.log("Analyzing CDC data...");
@@ -567,11 +569,13 @@ function displayResults(call, analyzer) {
                 </p>
                 <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
                 <div class="location-grid">
-                    ${call.locations.map(loc => `
-                        <div class="location-item">
+                    ${call.locations.map(loc => {
+            const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+            return `
+                        <div class="location-item" style="${tower ? 'border-left: 5px solid var(--success-color);' : ''}">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                 <div>
-                                    <strong>${loc.type}</strong><br>
+                                    <strong>${loc.type}</strong> ${tower ? '<span class="badge badge-success" style="font-size: 0.6rem;">Matched</span>' : ''}<br>
                                     <small>${analyzer.formatTimestamp(loc.timestamp)}</small>
                                 </div>
                                 <a href="https://opencellid.org/#action=locations.search&mcc=${loc.parsed.mcc}&mnc=${loc.parsed.mnc}&lac=${parseInt(loc.parsed.lac, 16)}&cellid=${parseInt(loc.parsed.cellId, 16)}" 
@@ -580,10 +584,17 @@ function displayResults(call, analyzer) {
                                 </a>
                             </div>
                             <div style="margin-top: 10px; font-family: monospace; font-size: 0.8rem;">
-                                MCC:${loc.parsed.mcc} MNC:${loc.parsed.mnc} LAC:${loc.parsed.lac} CID:${loc.parsed.cellId}
+                                LAC:${loc.parsed.lac} CID:${loc.parsed.cellId}
                             </div>
+                            ${tower ? `
+                            <div style="margin-top: 5px; font-size: 0.85rem; color: var(--primary-color); font-weight: 600;">
+                                📍 ${tower.address}
+                                ${tower.siteId ? `<br><small style="color: var(--text-muted);">Site: ${tower.siteId} (${tower.market || 'Unknown Market'})</small>` : ''}
+                            </div>
+                            ` : ''}
                         </div>
-                    `).join('')}
+                    `;
+        }).join('')}
                 </div>
             </div>
         `;
@@ -712,12 +723,39 @@ function initMap(locations) {
         const markers = [];
         locations.forEach(loc => {
             if (!loc.parsed.lac || !loc.parsed.cellId) return;
-            const latOffset = (parseInt(loc.parsed.lac, 16) % 100) / 500;
-            const lngOffset = (parseInt(loc.parsed.cellId, 16) % 100) / 500;
-            const lat = baseLat + latOffset;
-            const lng = baseLng + lngOffset;
-            const marker = L.marker([lat, lng]).addTo(map)
-                .bindPopup(`<b>${loc.type}</b><br>Cell ID: ${loc.parsed.cellId}<br>LAC: ${loc.parsed.lac}`);
+
+            const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+            let lat, lng, isPrecise = false;
+
+            if (tower && tower.lat && tower.lon) {
+                lat = tower.lat;
+                lng = tower.lon;
+                isPrecise = true;
+            } else {
+                const latOffset = (parseInt(loc.parsed.lac, 16) % 100) / 500;
+                const lngOffset = (parseInt(loc.parsed.cellId, 16) % 100) / 500;
+                lat = baseLat + latOffset;
+                lng = baseLng + lngOffset;
+            }
+
+            const markerColor = isPrecise ? '#276749' : '#2b6cb0';
+            const markerIcon = L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background-color: ${markerColor}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.4);"></div>`,
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
+            });
+
+            const marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map)
+                .bindPopup(`
+                    <div style="font-family: sans-serif;">
+                        <strong style="color: ${markerColor};">${loc.type}</strong><br>
+                        ${isPrecise ? `<span style="color: #276749; font-weight: bold;">✓ Career Verified Tower</span><br>
+                        <b>Address:</b> ${tower.address}<br>` : '<i>Estimated Location</i><br>'}
+                        <b>Cell ID:</b> ${loc.parsed.cellId}<br>
+                        <b>LAC:</b> ${loc.parsed.lac}
+                    </div>
+                `);
             markers.push(marker);
         });
 
@@ -801,11 +839,245 @@ T1.678 Version 4
             originating`;
 }
 
+function handleTowerUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const text = e.target.result;
+        const count = parseTowerCSV(text);
+        const status = document.getElementById('towerStatus');
+        if (count > 0) {
+            status.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${count} towers loaded</span>`;
+            console.log(`Loaded ${count} towers into memory.`);
+
+            // Show upload button now that we have local data
+            document.getElementById('uploadBtn').style.display = 'inline-block';
+
+            if (currentAnalyzer) {
+                analyzeCDC();
+            }
+        } else {
+            status.innerHTML = `<span style="color: var(--danger-color);">Format error (No LAC/CID found)</span>`;
+        }
+    };
+    reader.readAsText(file);
+}
+
+function parseTowerCSV(text) {
+    const lines = text.split('\n');
+    if (lines.length < 2) return 0;
+
+    // Identify columns
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const colIdx = {
+        lac: headers.findIndex(h => h === 'lac' || h.includes('location area')),
+        cid: headers.findIndex(h => h === 'cid' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier')),
+        lat: headers.findIndex(h => h === 'lat' || h.includes('latitude')),
+        lon: headers.findIndex(h => h === 'lon' || h.includes('longitude')),
+        address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location')),
+        market: headers.findIndex(h => h === 'market'),
+        siteId: headers.findIndex(h => h === 'site' || h === 'site id')
+    };
+
+    // If we can't find core columns, fail
+    if (colIdx.lac === -1 || colIdx.cid === -1) {
+        console.error("CSV Missing LAC or CID columns:", headers);
+        return 0;
+    }
+
+    let loadedCount = 0;
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+
+        // Handle potential commas in double quotes (basic CSV parsing)
+        const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+        if (!row || row.length < 2) continue;
+
+        const lac = row[colIdx.lac]?.replace(/"/g, '').trim();
+        const cid = row[colIdx.cid]?.replace(/"/g, '').trim();
+        const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]?.replace(/"/g, '')) : null;
+        const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]?.replace(/"/g, '')) : null;
+        const address = colIdx.address !== -1 ? row[colIdx.address]?.replace(/"/g, '').trim() : null;
+
+        if (lac && cid) {
+            const key = `${lac}-${cid}`;
+            towerDatabase.set(key, {
+                lat: isNaN(lat) ? null : lat,
+                lon: isNaN(lon) ? null : lon,
+                address: address || 'No address provided',
+                market: colIdx.market !== -1 ? row[colIdx.market]?.replace(/"/g, '').trim() : null,
+                siteId: colIdx.siteId !== -1 ? row[colIdx.siteId]?.replace(/"/g, '').trim() : null
+            });
+            loadedCount++;
+        }
+    }
+
+    return loadedCount;
+}
+
+// --- Supabase Integration ---
+
+function toggleSettings() {
+    const modal = document.getElementById('cloudSettings');
+    modal.style.display = modal.style.display === 'none' ? 'flex' : 'none';
+}
+
+function saveCloudSettings() {
+    const url = document.getElementById('supabaseUrl').value.trim();
+    const key = document.getElementById('supabaseKey').value.trim();
+
+    if (!url || !key) {
+        alert("Please enter both Supabase URL and Anon Key.");
+        return;
+    }
+
+    localStorage.setItem('supabaseUrl', url);
+    localStorage.setItem('supabaseKey', key);
+
+    if (initializeSupabase()) {
+        alert("Settings saved and Supabase initialized!");
+        toggleSettings();
+        syncTowersFromCloud();
+    }
+}
+
+function initializeSupabase() {
+    const url = localStorage.getItem('supabaseUrl');
+    const key = localStorage.getItem('supabaseKey');
+
+    if (url && key && typeof supabase !== 'undefined') {
+        try {
+            // Check if supabase global exists from CDN
+            if (window.supabase && window.supabase.createClient) {
+                supabase = window.supabase.createClient(url, key);
+                console.log("Supabase client initialized.");
+                return true;
+            }
+        } catch (e) {
+            console.error("Failed to init Supabase:", e);
+        }
+    }
+    return false;
+}
+
+async function syncTowersFromCloud() {
+    if (!initializeSupabase()) {
+        console.warn("Supabase not initialized. Cannot sync.");
+        return;
+    }
+
+    const syncBtn = document.getElementById('syncBtn');
+    syncBtn.textContent = "Syncing...";
+    syncBtn.disabled = true;
+
+    try {
+        const { data, error } = await supabase.from('towers').select('*');
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+            data.forEach(row => {
+                const key = `${row.lac}-${row.cid}`;
+                towerDatabase.set(key, {
+                    lat: row.lat,
+                    lon: row.lon,
+                    address: row.address,
+                    market: row.market,
+                    siteId: row.site_id
+                });
+            });
+
+            document.getElementById('towerStatus').innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${data.length} towers synced from Cloud</span>`;
+            console.log(`Synced ${data.length} towers from Supabase.`);
+
+            if (currentAnalyzer) {
+                analyzeCDC();
+            }
+        } else {
+            document.getElementById('towerStatus').textContent = "No towers found in cloud.";
+        }
+    } catch (e) {
+        console.error("Cloud sync failed:", e);
+        alert("Cloud sync failed. Check your Supabase settings or internet connection.");
+    } finally {
+        syncBtn.textContent = "Sync Cloud";
+        syncBtn.disabled = false;
+    }
+}
+
+async function uploadTowersToCloud() {
+    if (!initializeSupabase()) {
+        alert("Please configure Supabase first.");
+        toggleSettings();
+        return;
+    }
+
+    if (towerDatabase.size === 0) {
+        alert("No tower data in memory to upload. Load a CSV first.");
+        return;
+    }
+
+    const uploadBtn = document.getElementById('uploadBtn');
+    uploadBtn.textContent = "Uploading...";
+    uploadBtn.disabled = true;
+
+    try {
+        const rows = [];
+        towerDatabase.forEach((val, key) => {
+            const [lac, cid] = key.split('-');
+            rows.push({
+                lac,
+                cid,
+                lat: val.lat,
+                lon: val.lon,
+                address: val.address,
+                market: val.market,
+                site_id: val.siteId
+            });
+        });
+
+        // Batch upsert (requires unique constraint on lac, cid in Supabase)
+        const { error } = await supabase.from('towers').upsert(rows, { onConflict: 'lac,cid' });
+
+        if (error) throw error;
+
+        alert(`Successfully uploaded ${rows.length} records to the cloud!`);
+        document.getElementById('towerStatus').innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ Cloud database updated (${rows.length} rows)</span>`;
+    } catch (e) {
+        console.error("Cloud upload failed:", e);
+        alert("Cloud upload failed: " + e.message);
+    } finally {
+        uploadBtn.textContent = "Upload to Cloud";
+        uploadBtn.disabled = false;
+    }
+}
+
+
 // Explicitly expose functions to the global scope to ensure buttons work
 window.analyzeCDC = analyzeCDC;
 window.switchCall = switchCall;
 window.clearAll = clearAll;
 window.loadSample = loadSample;
 window.exportCSV = exportCSV;
+window.handleTowerUpload = handleTowerUpload;
+window.toggleSettings = toggleSettings;
+window.saveCloudSettings = saveCloudSettings;
+window.syncTowersFromCloud = syncTowersFromCloud;
+window.uploadTowersToCloud = uploadTowersToCloud;
 
-console.log("CDC Analyzer script v1.1 loaded and ready.");
+// Initialize on load
+document.addEventListener('DOMContentLoaded', () => {
+    // Populate settings if they exist
+    const url = localStorage.getItem('supabaseUrl');
+    const key = localStorage.getItem('supabaseKey');
+    if (url) document.getElementById('supabaseUrl').value = url;
+    if (key) document.getElementById('supabaseKey').value = key;
+
+    // Try to sync automatically
+    if (url && key) {
+        setTimeout(syncTowersFromCloud, 500);
+    }
+});
+
+console.log("CDC Analyzer script v1.2 loaded and ready (Supabase Cloud Support).");

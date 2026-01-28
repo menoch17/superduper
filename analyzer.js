@@ -1500,6 +1500,7 @@ function switchTab(tabId) {
 let packetData = [];
 let ipWhoisCache = {};
 let ipWhoisNameCache = {};
+let packetTargetFilter = 'All';
 
 // Known IP ranges for common services
 const IP_RANGES = {
@@ -1664,19 +1665,25 @@ function parseCSVLine(line) {
 function analyzePacketData() {
     if (packetData.length === 0) return;
 
+    const filteredPackets = packetData.filter(packet => {
+        if (!packetTargetFilter || packetTargetFilter === 'All') return true;
+        const target = packet['Target'] || packet['Target Address'] || '';
+        return target === packetTargetFilter;
+    });
+
     // Analyze IPs and services
     const ipAnalysis = {};
     const serviceStats = {};
     const portStats = {};
     const appDetection = {};
 
-    packetData.forEach(packet => {
+    filteredPackets.forEach(packet => {
         const srcIP = packet['Source Address'];
         const dstIP = packet['Destination Address'];
         const srcPort = packet['Source Port'];
-        const dstPort = packet['Destination Port'];
         const protocol = packet['Session Protocol'] || packet['Transport Protocol'];
         const bytes = parseInt(packet['Bytes']) || 0;
+        const effectivePort = srcPort;
 
         // Analyze source IP
         if (srcIP && srcIP !== '' && !srcIP.startsWith('fd00:')) {
@@ -1685,13 +1692,13 @@ function analyzePacketData() {
                     packets: 0,
                     bytes: 0,
                     ports: new Set(),
-                    service: identifyService(srcIP, srcPort),
+                    service: identifyService(srcIP, effectivePort),
                     protocols: new Set()
                 };
             }
             ipAnalysis[srcIP].packets++;
             ipAnalysis[srcIP].bytes += bytes;
-            if (srcPort) ipAnalysis[srcIP].ports.add(srcPort);
+            if (effectivePort) ipAnalysis[srcIP].ports.add(effectivePort);
             if (protocol) ipAnalysis[srcIP].protocols.add(protocol);
         }
 
@@ -1702,19 +1709,19 @@ function analyzePacketData() {
                     packets: 0,
                     bytes: 0,
                     ports: new Set(),
-                    service: identifyService(dstIP, dstPort),
+                    service: identifyService(dstIP, effectivePort),
                     protocols: new Set()
                 };
             }
             ipAnalysis[dstIP].packets++;
             ipAnalysis[dstIP].bytes += bytes;
-            if (dstPort) ipAnalysis[dstIP].ports.add(dstPort);
+            if (effectivePort) ipAnalysis[dstIP].ports.add(effectivePort);
             if (protocol) ipAnalysis[dstIP].protocols.add(protocol);
         }
 
         // Track port usage
-        if (dstPort && dstPort !== '0' && dstPort !== '') {
-            portStats[dstPort] = (portStats[dstPort] || 0) + 1;
+        if (effectivePort && effectivePort !== '0' && effectivePort !== '') {
+            portStats[effectivePort] = (portStats[effectivePort] || 0) + 1;
         }
 
         // Track protocols
@@ -1723,7 +1730,7 @@ function analyzePacketData() {
         }
 
         // App detection
-        const app = detectApp(srcIP, dstIP, srcPort, dstPort, protocol);
+        const app = detectApp(srcIP, dstIP, srcPort, null, protocol);
         if (app) {
             if (!appDetection[app]) {
                 appDetection[app] = { count: 0, bytes: 0, ips: new Set() };
@@ -1877,6 +1884,10 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top IP Addresses</h3>';
     html += `
         <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);">
+                <span>Target:</span>
+                <select id="packetTargetSelect" class="btn-secondary" style="padding: 6px 10px;" onchange="setPacketTargetFilter(this.value)"></select>
+            </label>
             <button class="btn-secondary" onclick="performBulkWhois()">Run WHOIS on All IPs</button>
             <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
         </div>
@@ -1960,6 +1971,14 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '</div></div>';
 
     resultsDiv.innerHTML = html;
+
+    // Populate target dropdown
+    const targetSelect = document.getElementById('packetTargetSelect');
+    if (targetSelect) {
+        const options = getPacketTargetOptions();
+        targetSelect.innerHTML = options.map(t => `<option value="${t}">${t}</option>`).join('');
+        targetSelect.value = packetTargetFilter || 'All';
+    }
 
     // Update cache stats
     getWhoisCacheStats().then(count => {
@@ -2170,6 +2189,20 @@ function formatBytes(bytes) {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+function getPacketTargetOptions() {
+    const targets = new Set();
+    packetData.forEach(packet => {
+        const target = packet['Target'] || packet['Target Address'];
+        if (target && target.trim()) targets.add(target.trim());
+    });
+    return ['All', ...Array.from(targets).sort()];
+}
+
+function setPacketTargetFilter(value) {
+    packetTargetFilter = value || 'All';
+    analyzePacketData();
 }
 
 async function lookupWhois(ip) {
@@ -2427,6 +2460,7 @@ function clearPacketAnalysis() {
     packetData = [];
     ipWhoisCache = {};
     ipWhoisNameCache = {};
+    packetTargetFilter = 'All';
     document.getElementById('packetResults').style.display = 'none';
     document.getElementById('packetStatus').innerHTML = 'No packet data loaded';
     document.getElementById('packetFileInput').value = '';

@@ -1987,7 +1987,7 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     // App Detection Section
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px;">Detected Applications & Services</h3>';
     if (Object.keys(appDetection).length > 0) {
-        html += '<div class="summary-grid packet-apps" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 25px;">';
+        html += '<div class="summary-grid packet-apps" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 15px; margin-bottom: 25px;">';
 
         const sortedApps = Object.entries(appDetection).sort((a, b) => b[1].bytes - a[1].bytes);
         sortedApps.forEach(([app, data]) => {

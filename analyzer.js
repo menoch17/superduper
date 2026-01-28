@@ -1887,6 +1887,7 @@ function getIanaPortDisplay(port) {
     if (!entries || !entries.length) return null;
     const labels = [];
     const seen = new Set();
+    const descs = [];
     for (const entry of entries) {
         const service = (entry.service || entry.description || '').trim();
         if (!service) continue;
@@ -1896,13 +1897,18 @@ function getIanaPortDisplay(port) {
         if (seen.has(key)) continue;
         seen.add(key);
         labels.push(label);
+        if (entry.description) {
+            descs.push(`${label}: ${entry.description}`);
+        }
     }
     if (!labels.length) return null;
     const full = labels.join(', ');
     const maxItems = 4;
     const short = labels.length > maxItems ? `${labels.slice(0, maxItems).join(', ')} +${labels.length - maxItems} more` : full;
     const escapedFull = full.replace(/\"/g, '&quot;');
-    return `<span title="${escapedFull}">${short}</span>`;
+    const descTitle = descs.length ? descs.join(' | ').replace(/\"/g, '&quot;') : '';
+    const infoBadge = descTitle ? ` <span title="${descTitle}" style="display:inline-block; margin-left:4px; width:16px; height:16px; line-height:16px; text-align:center; border-radius:50%; background:rgba(0,0,0,0.08); color:var(--text-secondary); font-size:0.75rem;">?</span>` : '';
+    return `<span title="${escapedFull}">${short}</span>${infoBadge}`;
 }
 
 function detectApp(srcIP, dstIP, srcPort, dstPort, protocol) {

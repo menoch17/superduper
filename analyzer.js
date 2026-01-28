@@ -1871,7 +1871,8 @@ function getPortServiceDisplay(port) {
         const desc = PORT_SERVICE_DESCRIPTIONS[port];
         if (desc) {
             const escapedDesc = desc.replace(/\"/g, '&quot;');
-            return `<span title="${escapedDesc}">${service}</span>`;
+            const infoBadge = ` <span title="${escapedDesc}" style="display:inline-block; margin-left:4px; width:16px; height:16px; line-height:16px; text-align:center; border-radius:50%; background:rgba(0,0,0,0.08); color:var(--text-secondary); font-size:0.75rem;">?</span>`;
+            return `<span>${service}</span>${infoBadge}`;
         }
         return service;
     }

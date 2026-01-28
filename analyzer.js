@@ -1413,7 +1413,11 @@ async function uploadTowersToCloud() {
                 lon: val.lon,
                 address: val.address,
                 market: val.market,
-                site_id: val.siteId
+                site_id: val.siteId,
+                azimuth: val.azimuth ?? null,
+                beamwidth: val.beamWidth ?? null,
+                radius: val.sectorRadiusMeters ?? null,
+                sector: val.sectorName ?? null
             });
         });
 

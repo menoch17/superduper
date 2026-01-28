@@ -593,7 +593,7 @@ const SUPABASE_CONFIG = {
     KEY: 'sb_publishable_eysjqn_CJYqpP59sA8GELg_tZRT7qsS'
 };
 
-function analyzeCDC() {
+function analyzeCDC(options = {}) {
     console.log("Analyzing CDC data...");
     const input = document.getElementById('cdcInput').value;
     if (!input.trim()) {
@@ -626,6 +626,10 @@ function analyzeCDC() {
         const preferredId = choosePreferredCallId(currentAnalyzer.calls);
         if (preferredId) selector.value = preferredId;
         switchCall(selector.value);
+
+        if (!options.skipTowerSync) {
+            syncTowersFromCloud({ refreshAfter: true });
+        }
     } catch (err) {
         console.error("Analysis failed:", err);
         alert("An error occurred during analysis. Check the console for details.");
@@ -1294,15 +1298,18 @@ function initializeSupabase() {
     return false;
 }
 
-async function syncTowersFromCloud() {
+async function syncTowersFromCloud(options = {}) {
+    const { refreshAfter = false } = options;
     if (!initializeSupabase()) {
         console.warn("Supabase not initialized. Cannot sync.");
         return;
     }
 
     const syncBtn = document.getElementById('syncBtn');
-    syncBtn.textContent = "Syncing...";
-    syncBtn.disabled = true;
+    if (syncBtn) {
+        syncBtn.textContent = "Syncing...";
+        syncBtn.disabled = true;
+    }
     const towerStatus = document.getElementById('towerStatus');
 
     try {
@@ -1345,8 +1352,8 @@ async function syncTowersFromCloud() {
             towerStatus.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${loaded} towers synced from Cloud</span>`;
             console.log(`Synced ${loaded} towers from Supabase (targeted).`);
 
-            if (currentAnalyzer) {
-                analyzeCDC();
+            if (currentAnalyzer && refreshAfter) {
+                analyzeCDC({ skipTowerSync: true });
             }
         } else {
             towerStatus.textContent = "No matching towers found in cloud.";
@@ -1356,8 +1363,10 @@ async function syncTowersFromCloud() {
         console.error("Cloud sync failed:", e);
         alert("Cloud sync failed. Check your Supabase settings or internet connection.");
     } finally {
-        syncBtn.textContent = "Sync Cloud";
-        syncBtn.disabled = false;
+        if (syncBtn) {
+            syncBtn.textContent = "Sync Cloud";
+            syncBtn.disabled = false;
+        }
     }
 }
 

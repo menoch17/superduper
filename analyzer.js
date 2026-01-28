@@ -1523,19 +1523,37 @@ function switchTab(tabId) {
     });
     document.getElementById(tabId).classList.add('active');
 
+    const results = document.getElementById('resultsContainer');
+    const callSelector = document.getElementById('callSelectorContainer');
+    const callSelectorSelect = document.getElementById('callSelector');
+    const callDetails = document.getElementById('callDetails');
+    const packetResults = document.getElementById('packetResults');
+
     // Special handling for map resize when switching to analyzer
     if (tabId === 'analyzerTab') {
         setTimeout(() => {
             if (window.map) window.map.invalidateSize();
         }, 100);
     }
+
     if (tabId === 'packetTab') {
-        const results = document.getElementById('resultsContainer');
-        if (results) results.style.display = 'none';
-    }
-    if (tabId === 'analyzerTab') {
-        const results = document.getElementById('resultsContainer');
         if (results) results.style.display = '';
+        if (callSelector) callSelector.style.display = 'none';
+        if (callDetails) callDetails.style.display = 'none';
+        if (packetResults) {
+            packetResults.style.display = packetData.length ? 'block' : 'none';
+        }
+    } else if (tabId === 'analyzerTab') {
+        if (results) results.style.display = '';
+        if (callDetails) callDetails.style.display = '';
+        if (callSelector) {
+            const hasOptions = callSelectorSelect && callSelectorSelect.options && callSelectorSelect.options.length > 0;
+            callSelector.style.display = hasOptions ? 'flex' : 'none';
+        }
+        if (packetResults) packetResults.style.display = 'none';
+    } else {
+        if (results) results.style.display = 'none';
+        if (packetResults) packetResults.style.display = 'none';
     }
 
     // Check database connection when switching to packet tab

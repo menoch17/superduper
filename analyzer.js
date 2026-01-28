@@ -176,7 +176,7 @@ class CDCAnalyzer {
         for (const alias of aliases) {
             const regex = new RegExp(`${alias}\\s*=\\s*(.+?)(?:\\n|$)`, 'i');
             const match = block.match(regex);
-            if (match) return match[1].trim();
+            if (match) return decodePossibleHex(match[1].trim());
         }
         return null;
     }
@@ -184,7 +184,7 @@ class CDCAnalyzer {
     extractNestedField(block, parentField, childField) {
         const regex = new RegExp(`${parentField}[\\s\\S]*?${childField}\\s*=\\s*(.+?)(?:\\n|$)`, 'i');
         const match = block.match(regex);
-        return match ? match[1].trim() : null;
+        return match ? decodePossibleHex(match[1].trim()) : null;
     }
 
     loadStandardMessageTypes() {
@@ -530,7 +530,8 @@ function decodePossibleHex(text) {
     const hex = compact.startsWith('0x') ? compact.slice(2) : compact;
     if (!isLikelyHex(hex)) return raw.trim();
     const decoded = decodeHexToString(hex);
-    return decoded || raw.trim();
+    if (!decoded) return raw.trim();
+    return isMostlyPrintable(decoded) ? decoded : raw.trim();
 }
 
 function isLikelyHex(value) {
@@ -550,6 +551,17 @@ function decodeHexToString(hex) {
     } catch (e) {
         return '';
     }
+}
+
+function isMostlyPrintable(text) {
+    if (!text) return false;
+    let printable = 0;
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        const isPrintable = (code >= 32 && code <= 126) || code === 10 || code === 13 || code === 9;
+        if (isPrintable) printable++;
+    }
+    return printable / text.length >= 0.7;
 }
 
 function getDecimalValue(value) {

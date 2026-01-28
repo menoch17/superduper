@@ -441,6 +441,10 @@ class CDCAnalyzer {
                     for (const sip of message.data.sipMessages) {
                         call.sipMessages.push({ timestamp: message.timestamp, ...sip });
                         if (sip.parsed?.headers) {
+                            if (this.isSmsSipMessage(message, sip)) {
+                                call.callType = 'SMS/MMS';
+                                call.smsData.push(this.buildSmsEntryFromSip(message, sip));
+                            }
                             const pai = sip.parsed.headers['P-Asserted-Identity'];
                             if (pai) {
                                 const nameVal = Array.isArray(pai) ? pai[0] : pai;
@@ -492,6 +496,48 @@ class CDCAnalyzer {
                 call.smsData.push({ timestamp: message.timestamp, ...message.data });
                 break;
         }
+    }
+
+    isSmsSipMessage(message, sip) {
+        if (!sip || !sip.parsed) return false;
+        const method = sip.parsed.method || '';
+        if (method.toUpperCase() === 'MESSAGE') return true;
+        const headers = sip.parsed.headers || {};
+        const contentType = this.getHeaderValue(headers, 'Content-Type');
+        if (contentType && /3gpp\.sms/i.test(contentType)) return true;
+        const acceptContact = this.getHeaderValue(headers, 'Accept-Contact');
+        if (acceptContact && /smsip/i.test(acceptContact)) return true;
+        const rawBlock = message?.rawBlock || '';
+        if (/gsm\s+sms/i.test(rawBlock) || /sms\-deliver/i.test(rawBlock)) return true;
+        return false;
+    }
+
+    buildSmsEntryFromSip(message, sip) {
+        const headers = sip.parsed?.headers || {};
+        const from = this.extractPhoneNumber(this.getHeaderValue(headers, 'From')) || this.extractPhoneNumber(this.getHeaderValue(headers, 'P-Asserted-Identity'));
+        const to = this.extractPhoneNumber(this.getHeaderValue(headers, 'To')) || this.extractPhoneNumber(this.getHeaderValue(headers, 'P-Called-Party-ID'));
+        let content = '';
+        const rawBlock = message?.rawBlock || '';
+        const smsHeaderMatch = rawBlock.match(/GSM\\s+SMS-DELIVER[^\\n]*:\\s*([0-9+]+)/i);
+        if (smsHeaderMatch) {
+            content = `GSM SMS-DELIVER from ${smsHeaderMatch[1]}`;
+        } else {
+            content = 'SIP MESSAGE (SMS)';
+        }
+        return {
+            timestamp: message.timestamp,
+            direction: 'SMS',
+            from: from || 'Unknown',
+            to: to || 'Unknown',
+            content
+        };
+    }
+
+    getHeaderValue(headers, name) {
+        const key = Object.keys(headers).find(k => k.toLowerCase() === name.toLowerCase());
+        if (!key) return null;
+        const value = headers[key];
+        return Array.isArray(value) ? value[0] : value;
     }
 
     parseTimestamp(timestamp) {

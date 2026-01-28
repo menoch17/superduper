@@ -1905,7 +1905,6 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;">';
     html += '<div style="display: flex; justify-content: space-between; align-items: center;">';
     html += '<div><strong>IP WHOIS Database:</strong> <span id="dbCacheCount">Checking...</span></div>';
-    html += '<button class="btn-secondary" onclick="viewWhoisCache()" style="background: white; color: #667eea; border: none;">View Cache</button>';
     html += '</div></div>';
 
     // App Detection Section
@@ -1954,7 +1953,6 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<th style="padding: 12px; text-align: right;">Bytes</th>';
     html += '<th style="padding: 12px; text-align: left;">Ports</th>';
     html += '<th style="padding: 12px; text-align: left;">Protocols</th>';
-    html += '<th style="padding: 12px; text-align: left;">WHOIS</th>';
     html += '</tr></thead><tbody>';
 
     const sortedIPs = Object.entries(ipAnalysis)
@@ -1970,13 +1968,13 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
                 <td style="padding: 10px;">
                     <div id="whois-name-${ipKey}" style="font-weight: 600;">${ip}</div>
                     <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                    <span id="whois-${ipKey}" style="display: none;"></span>
                 </td>
                 <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
                 <td style="padding: 10px; text-align: right;">${data.packets}</td>
                 <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
                 <td style="padding: 10px; font-size: 0.85rem;">${ports}</td>
                 <td style="padding: 10px; font-size: 0.85rem;">${protocols}</td>
-                <td style="padding: 10px;"><button class="btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;" onclick="lookupWhois('${ip}')">Lookup</button> <span id="whois-${ip.replace(/:/g, '-')}"></span></td>
             </tr>
         `;
     });

@@ -4,24 +4,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CDC Messaging Analyzer - Law Enforcement Tool</title>
+    <title>Signal Dossier - CDC Messaging Analyzer</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Saira+Semi+Condensed:wght@400;600;700&family=Spline+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet">
     <!-- External Libraries (Mapping & Diagrams) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 
 <body>
-    <div class="container">
+    <div class="app-shell">
+        <header class="app-header">
+            <div class="brand">
+                <span class="brand-kicker">CDC / LAES Investigative Suite</span>
+                <h1>Signal Dossier</h1>
+                <p>Reconstruct multi-call narratives from raw carrier signaling in seconds. No upload. No cloud risk.
+                </p>
+            </div>
+            <div class="status-panel">
+                <div class="status-item">
+                    <span class="status-label">Mode</span>
+                    <span class="status-value">Local-only</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Maps</span>
+                    <span class="status-value">Leaflet / OSM</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Diagramming</span>
+                    <span class="status-value">Mermaid</span>
+                </div>
+            </div>
+        </header>
+
         <nav class="tabs">
             <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
             <button class="tab-btn" onclick="switchTab('towerTab')">Tower Management</button>
             <button class="tab-btn" onclick="switchTab('packetTab')">Packet Analysis</button>
         </nav>
 
-        <div id="analyzerTab" class="tab-panel active">
-            <div class="input-section">
-                <h2>Paste CDC Data Below</h2>
-                <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
+        <main class="workspace">
+            <section class="panel-stack">
+                <div id="analyzerTab" class="tab-panel active">
+                    <div class="input-section">
+                        <h2>Paste CDC Data</h2>
+                        <p class="section-note">Supports T1.678/LAES attempts, IMS VoIP CII, SIP direct signal
+                            reporting, ccOpen/ccClose, and SMS/MMS.</p>
+                        <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
 
 Example message types this tool can parse:
 - termAttempt / origAttempt (Call attempts)
@@ -29,75 +61,76 @@ Example message types this tool can parse:
 - directSignalReporting (SIP signaling)
 - ccOpen / ccClose (Content channel)
 - SMS/MMS messages"></textarea>
-                <div class="button-row">
-                    <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
-                    <button class="btn-secondary" onclick="clearAll()">Clear</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="towerTab" class="tab-panel">
-            <div class="input-section">
-                <h2>Tower Database Management</h2>
-                <p style="color: var(--text-secondary); margin-bottom: 20px;">Manage your local tower CSV files and sync
-                    with the cloud database.</p>
-                <div class="button-row" style="display: flex; align-items: center; gap: 15px;">
-                    <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
-                        onchange="handleTowerUpload(event)">
-                    <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load Local
-                        CSV</button>
-                    <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
-                        style="font-size: 0.9rem; padding: 10px 15px;">Sync from Cloud</button>
-                    <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
-                        style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
-                    <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
-                </div>
-                <div id="towerStatus"
-                    style="margin-top: 15px; font-size: 0.95rem; color: var(--text-secondary); padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05);">
-                    No tower list loaded
-                </div>
-            </div>
-        </div>
-
-        <div id="packetTab" class="tab-panel">
-            <div class="input-section">
-                <h2>Packet Data Analysis - Pen Register</h2>
-                <p style="color: var(--text-secondary); margin-bottom: 15px;">Upload pen register CSV data to analyze IP addresses, identify services (messaging apps, banking, social media), and perform WHOIS lookups.</p>
-
-                <div id="dbNotConnectedWarning" style="display: none; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 15px; border-radius: 6px; margin-bottom: 15px; font-size: 0.9rem;">
-                    ⚠ <strong>Database not connected:</strong> WHOIS lookups won't be cached. Configure Supabase in <strong>Tower Management → Cloud Config</strong> to enable caching and save API calls.
+                        <div class="button-row">
+                            <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
+                            <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="button-row" style="display: flex; align-items: center; gap: 15px;">
-                    <input type="file" id="packetFileInput" accept=".csv" style="display: none;"
-                        onchange="handlePacketUpload(event)">
-                    <button class="btn-primary" onclick="document.getElementById('packetFileInput').click()">Upload Packet CSV</button>
-                    <button class="btn-secondary" onclick="clearPacketAnalysis()">Clear Results</button>
+                <div id="towerTab" class="tab-panel">
+                    <div class="input-section">
+                        <h2>Tower Database Management</h2>
+                        <p class="section-note">Manage your local tower CSV files and sync with the cloud database.</p>
+                        <div class="button-row">
+                            <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
+                                onchange="handleTowerUpload(event)">
+                            <button class="btn-secondary"
+                                onclick="document.getElementById('towerFileInput').click()">Load Local CSV</button>
+                            <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()">Sync from Cloud</button>
+                            <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
+                                style="display: none;">Upload to Cloud</button>
+                            <button class="btn-ghost" onclick="toggleSettings()">Cloud Config</button>
+                        </div>
+                        <div id="towerStatus" class="status-chip">
+                            No tower list loaded
+                        </div>
+                    </div>
                 </div>
-                <div id="packetStatus"
-                    style="margin-top: 15px; font-size: 0.95rem; color: var(--text-secondary); padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05);">
-                    No packet data loaded
+
+                <div id="packetTab" class="tab-panel">
+                    <div class="input-section">
+                        <h2>Packet Data Analysis - Pen Register</h2>
+                        <p class="section-note">Upload pen register CSV data to analyze IP addresses, identify services,
+                            and perform WHOIS lookups.</p>
+
+                        <div id="dbNotConnectedWarning" class="warning-chip" style="display: none;">
+                            ⚠ <strong>Database not connected:</strong> WHOIS lookups won't be cached. Configure Supabase
+                            in <strong>Tower Management → Cloud Config</strong> to enable caching and save API calls.
+                        </div>
+
+                        <div class="button-row">
+                            <input type="file" id="packetFileInput" accept=".csv" style="display: none;"
+                                onchange="handlePacketUpload(event)">
+                            <button class="btn-primary"
+                                onclick="document.getElementById('packetFileInput').click()">Upload Packet CSV</button>
+                            <button class="btn-secondary" onclick="clearPacketAnalysis()">Clear Results</button>
+                        </div>
+                        <div id="packetStatus" class="status-chip">
+                            No packet data loaded
+                        </div>
+                    </div>
+
+                    <div id="packetResults" style="margin-top: 20px; display: none;">
+                        <!-- Analysis results will be displayed here -->
+                    </div>
                 </div>
-            </div>
+            </section>
 
-            <div id="packetResults" style="margin-top: 20px; display: none;">
-                <!-- Analysis results will be displayed here -->
-            </div>
-        </div>
-    </div>
-
-    <div class="results-container" id="resultsContainer">
-        <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
-            <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call / Event:</label>
-            <select id="callSelector" onchange="switchCall(this.value)"
-                style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
-            <button class="btn-secondary" onclick="exportCSV()"
-                style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
-        </div>
-        <div id="callDetails">
-            <!-- Results will be inserted here -->
-        </div>
-    </div>
+            <section class="results-container" id="resultsContainer">
+                <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
+                    <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call /
+                        Event:</label>
+                    <select id="callSelector" onchange="switchCall(this.value)"
+                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
+                    <button class="btn-secondary" onclick="exportCSV()"
+                        style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
+                </div>
+                <div id="callDetails">
+                    <!-- Results will be inserted here -->
+                </div>
+            </section>
+        </main>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

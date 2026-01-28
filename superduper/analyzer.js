@@ -851,6 +851,7 @@ function initMap(locations) {
         if (markers.length > 0) {
             const group = new L.featureGroup(markers);
             map.fitBounds(group.getBounds().pad(0.5));
+            map.setZoom(Math.max(map.getZoom() - 3, 1));
         } else {
             map.setView([baseLat, baseLng], 13);
         }

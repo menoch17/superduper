@@ -1413,6 +1413,788 @@ function switchTab(tabId) {
             if (window.map) window.map.invalidateSize();
         }, 100);
     }
+
+    // Check database connection when switching to packet tab
+    if (tabId === 'packetTab') {
+        const warningEl = document.getElementById('dbNotConnectedWarning');
+        if (warningEl) {
+            warningEl.style.display = supabaseClient ? 'none' : 'block';
+        }
+    }
+}
+
+// =====================================
+// PACKET ANALYSIS FUNCTIONALITY
+// =====================================
+
+let packetData = [];
+let ipWhoisCache = {};
+
+// Known IP ranges for common services
+const IP_RANGES = {
+    facebook: ['2a03:2880:', '157.240.', '31.13.', '66.220.', '69.63.', '69.171.', '173.252.', '179.60.'],
+    instagram: ['2a03:2880:', '157.240.', '31.13.'],
+    whatsapp: ['2a03:2880:', '157.240.', '31.13.', '18.194.', '34.', '50.22.'],
+    apple: ['2620:149:', '17.', '2a01:b740:'],
+    google: ['2607:f8b0:', '2001:4860:', '142.250.', '172.217.', '216.58.', '8.8.'],
+    microsoft: ['2603:', '2620:1ec:', '13.', '20.', '40.', '52.', '104.'],
+    telegram: ['2001:67c:4e8:', '91.108.', '149.154.', '95.161.'],
+    signal: ['142.250.', '2001:4860:'],
+    tiktok: ['2a04:4e42:', '2606:4700:'],
+    snapchat: ['35.186.', '104.154.', '34.', '2600:1900:'],
+    twitter: ['2606:1f80:', '104.244.', '192.133.', '199.16.', '199.59.'],
+    netflix: ['2606:2800:', '2a00:86c0:', '23.246.', '37.77.', '45.57.', '198.38.', '208.75.'],
+    amazon: ['2600:1f', '2600:9000:', '52.', '54.', '205.251.', '176.32.'],
+    cloudflare: ['2606:4700:', '2803:f800:', '104.16.', '172.64.', '173.245.'],
+    verizon: ['2001:4888:', '206.124.', '69.78.'],
+    tmobile: ['2607:fb90:', '2607:fb91:', '208.54.'],
+    att: ['2600:1700:', '2600:380:', '12.', '99.'],
+    // Banking and Financial Services
+    bankofamerica: ['171.161.', '209.86.', '159.53.'],
+    chase: ['159.53.', '205.219.', '216.150.'],
+    wellsfargo: ['159.45.', '206.112.', '206.180.'],
+    paypal: ['64.4.', '66.211.', '173.0.'],
+    venmo: ['64.4.', '66.211.', '173.0.'],
+    cashapp: ['104.16.', '172.64.'], // Uses Cloudflare
+    zelle: ['159.53.', '205.219.'], // Often via bank apps
+    coinbase: ['104.18.', '172.66.', '104.16.'],
+    robinhood: ['52.', '54.', '35.'],
+    // Additional messaging/communication
+    discord: ['2606:4700:', '104.16.', '162.159.'],
+    slack: ['52.', '54.', '99.', '107.23.'],
+    zoom: ['3.', '13.', '18.', '50.', '2600:1f'],
+    skype: ['13.', '20.', '40.', '52.', '104.'],
+    // Email services
+    gmail: ['2607:f8b0:', '2001:4860:', '142.250.', '172.217.'],
+    outlook: ['2603:', '13.', '20.', '40.', '52.'],
+    yahoo: ['2001:4998:', '66.94.', '67.195.', '68.142.', '98.136.', '209.191.'],
+    // Other popular services
+    spotify: ['35.186.', '104.199.', '2600:1900:'],
+    uber: ['2600:1f', '52.', '54.'],
+    lyft: ['52.', '54.', '35.'],
+    doordash: ['52.', '54.', '35.'],
+    instacart: ['52.', '54.', '35.'],
+};
+
+// Common ports and services
+const PORT_SERVICES = {
+    20: 'FTP Data',
+    21: 'FTP Control',
+    22: 'SSH',
+    23: 'Telnet',
+    25: 'SMTP (Email)',
+    53: 'DNS',
+    80: 'HTTP',
+    110: 'POP3 (Email)',
+    143: 'IMAP (Email)',
+    443: 'HTTPS',
+    465: 'SMTPS (Secure Email)',
+    587: 'SMTP Submission',
+    993: 'IMAPS (Secure Email)',
+    995: 'POP3S (Secure Email)',
+    3306: 'MySQL',
+    3389: 'RDP',
+    5060: 'SIP (VoIP)',
+    5061: 'SIP-TLS (Secure VoIP)',
+    5223: 'Apple Push Notification / XMPP',
+    5228: 'Google Cloud Messaging',
+    5242: 'Viber',
+    8080: 'HTTP Alternate',
+    8443: 'HTTPS Alternate',
+};
+
+function handlePacketUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const csvText = e.target.result;
+            parsePacketCSV(csvText);
+        } catch (error) {
+            document.getElementById('packetStatus').innerHTML =
+                `<span style="color: var(--danger-color);">Error: ${error.message}</span>`;
+        }
+    };
+    reader.readAsText(file);
+}
+
+function parsePacketCSV(csvText) {
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) {
+        throw new Error('CSV file is empty or invalid');
+    }
+
+    // Remove BOM if present
+    const headerLine = lines[0].replace(/^\uFEFF/, '');
+    const headers = parseCSVLine(headerLine);
+
+    packetData = [];
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i]);
+        if (values.length === headers.length) {
+            const row = {};
+            headers.forEach((header, idx) => {
+                row[header] = values[idx];
+            });
+            packetData.push(row);
+        }
+    }
+
+    document.getElementById('packetStatus').innerHTML =
+        `<span style="color: var(--success-color);">✓ Loaded ${packetData.length} packet records</span>`;
+
+    analyzePacketData();
+}
+
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current);
+    return result;
+}
+
+function analyzePacketData() {
+    if (packetData.length === 0) return;
+
+    // Analyze IPs and services
+    const ipAnalysis = {};
+    const serviceStats = {};
+    const portStats = {};
+    const appDetection = {};
+
+    packetData.forEach(packet => {
+        const srcIP = packet['Source Address'];
+        const dstIP = packet['Destination Address'];
+        const srcPort = packet['Source Port'];
+        const dstPort = packet['Destination Port'];
+        const protocol = packet['Session Protocol'] || packet['Transport Protocol'];
+        const bytes = parseInt(packet['Bytes']) || 0;
+
+        // Analyze source IP
+        if (srcIP && srcIP !== '' && !srcIP.startsWith('fd00:')) {
+            if (!ipAnalysis[srcIP]) {
+                ipAnalysis[srcIP] = {
+                    packets: 0,
+                    bytes: 0,
+                    ports: new Set(),
+                    service: identifyService(srcIP, srcPort),
+                    protocols: new Set()
+                };
+            }
+            ipAnalysis[srcIP].packets++;
+            ipAnalysis[srcIP].bytes += bytes;
+            if (srcPort) ipAnalysis[srcIP].ports.add(srcPort);
+            if (protocol) ipAnalysis[srcIP].protocols.add(protocol);
+        }
+
+        // Analyze destination IP
+        if (dstIP && dstIP !== '' && !dstIP.startsWith('fd00:')) {
+            if (!ipAnalysis[dstIP]) {
+                ipAnalysis[dstIP] = {
+                    packets: 0,
+                    bytes: 0,
+                    ports: new Set(),
+                    service: identifyService(dstIP, dstPort),
+                    protocols: new Set()
+                };
+            }
+            ipAnalysis[dstIP].packets++;
+            ipAnalysis[dstIP].bytes += bytes;
+            if (dstPort) ipAnalysis[dstIP].ports.add(dstPort);
+            if (protocol) ipAnalysis[dstIP].protocols.add(protocol);
+        }
+
+        // Track port usage
+        if (dstPort && dstPort !== '0' && dstPort !== '') {
+            portStats[dstPort] = (portStats[dstPort] || 0) + 1;
+        }
+
+        // Track protocols
+        if (protocol && protocol !== '') {
+            serviceStats[protocol] = (serviceStats[protocol] || 0) + 1;
+        }
+
+        // App detection
+        const app = detectApp(srcIP, dstIP, srcPort, dstPort, protocol);
+        if (app) {
+            if (!appDetection[app]) {
+                appDetection[app] = { count: 0, bytes: 0, ips: new Set() };
+            }
+            appDetection[app].count++;
+            appDetection[app].bytes += bytes;
+            appDetection[app].ips.add(srcIP);
+            appDetection[app].ips.add(dstIP);
+        }
+    });
+
+    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection);
+}
+
+function identifyService(ip, port) {
+    // Check known IP ranges
+    for (const [service, ranges] of Object.entries(IP_RANGES)) {
+        for (const range of ranges) {
+            if (ip.startsWith(range)) {
+                return service.charAt(0).toUpperCase() + service.slice(1);
+            }
+        }
+    }
+
+    // Check by port
+    if (port && PORT_SERVICES[port]) {
+        return PORT_SERVICES[port];
+    }
+
+    return 'Unknown';
+}
+
+function detectApp(srcIP, dstIP, srcPort, dstPort, protocol) {
+    const checkIP = (ip) => {
+        for (const [app, ranges] of Object.entries(IP_RANGES)) {
+            for (const range of ranges) {
+                if (ip && ip.startsWith(range)) {
+                    return app;
+                }
+            }
+        }
+        return null;
+    };
+
+    let app = checkIP(srcIP) || checkIP(dstIP);
+
+    // Special port-based detection
+    if (!app) {
+        if (dstPort === '5223' || srcPort === '5223') {
+            app = 'apple-apns';
+        } else if (dstPort === '5228' || srcPort === '5228') {
+            app = 'google-gcm';
+        } else if (dstPort === '5060' || srcPort === '5060' || dstPort === '5061' || srcPort === '5061') {
+            app = 'voip-sip';
+        } else if (protocol && protocol.toLowerCase().includes('sip')) {
+            app = 'voip-sip';
+        }
+    }
+
+    return app;
+}
+
+async function getWhoisCacheStats() {
+    if (!supabaseClient) return 0;
+
+    try {
+        const { count, error } = await supabaseClient
+            .from('ip_whois')
+            .select('*', { count: 'exact', head: true });
+
+        return error ? 0 : count;
+    } catch (error) {
+        return 0;
+    }
+}
+
+function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection) {
+    const resultsDiv = document.getElementById('packetResults');
+    resultsDiv.style.display = 'block';
+
+    let html = '<div class="input-section">';
+
+    // Database Stats
+    html += '<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;">';
+    html += '<div style="display: flex; justify-content: space-between; align-items: center;">';
+    html += '<div><strong>IP WHOIS Database:</strong> <span id="dbCacheCount">Checking...</span></div>';
+    html += '<button class="btn-secondary" onclick="viewWhoisCache()" style="background: white; color: #667eea; border: none;">View Cache</button>';
+    html += '</div></div>';
+
+    // App Detection Section
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px;">Detected Applications & Services</h3>';
+    if (Object.keys(appDetection).length > 0) {
+        html += '<div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 25px;">';
+
+        const sortedApps = Object.entries(appDetection).sort((a, b) => b[1].bytes - a[1].bytes);
+        sortedApps.forEach(([app, data]) => {
+            const appName = formatAppName(app);
+            const category = categorizeApp(app);
+            html += `
+                <div class="summary-card" style="background: ${getCategoryColor(category)};">
+                    <div class="summary-label">${appName}</div>
+                    <div class="summary-value">${data.count} connections</div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 5px;">
+                        ${formatBytes(data.bytes)} transferred<br>
+                        ${data.ips.size} unique IPs<br>
+                        <span style="color: var(--warning-color); font-weight: 600;">${category}</span>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+    } else {
+        html += '<p style="color: var(--text-secondary);">No specific apps detected</p>';
+    }
+
+    // Top IPs Section
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top IP Addresses</h3>';
+    html += `
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <button class="btn-secondary" onclick="performBulkWhois()">Run WHOIS on All IPs</button>
+            <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
+        </div>
+    `;
+    html += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+    html += '<thead><tr style="background: var(--primary-color); color: white;">';
+    html += '<th style="padding: 12px; text-align: left;">IP Address</th>';
+    html += '<th style="padding: 12px; text-align: left;">Service</th>';
+    html += '<th style="padding: 12px; text-align: right;">Packets</th>';
+    html += '<th style="padding: 12px; text-align: right;">Bytes</th>';
+    html += '<th style="padding: 12px; text-align: left;">Ports</th>';
+    html += '<th style="padding: 12px; text-align: left;">Protocols</th>';
+    html += '<th style="padding: 12px; text-align: left;">WHOIS</th>';
+    html += '</tr></thead><tbody>';
+
+    const sortedIPs = Object.entries(ipAnalysis)
+        .sort((a, b) => b[1].bytes - a[1].bytes)
+        .slice(0, 50); // Top 50 IPs
+
+    sortedIPs.forEach(([ip, data]) => {
+        const ports = Array.from(data.ports).slice(0, 5).join(', ');
+        const protocols = Array.from(data.protocols).join(', ');
+        html += `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 10px; font-family: monospace;">${ip}</td>
+                <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
+                <td style="padding: 10px; text-align: right;">${data.packets}</td>
+                <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
+                <td style="padding: 10px; font-size: 0.85rem;">${ports}</td>
+                <td style="padding: 10px; font-size: 0.85rem;">${protocols}</td>
+                <td style="padding: 10px;"><button class="btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;" onclick="lookupWhois('${ip}')">Lookup</button> <span id="whois-${ip.replace(/:/g, '-')}"></span></td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table></div>';
+
+    // Port Statistics
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Port Usage Statistics</h3>';
+    html += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+    html += '<thead><tr style="background: var(--primary-color); color: white;">';
+    html += '<th style="padding: 12px; text-align: left;">Port</th>';
+    html += '<th style="padding: 12px; text-align: left;">Service</th>';
+    html += '<th style="padding: 12px; text-align: right;">Connections</th>';
+    html += '</tr></thead><tbody>';
+
+    const sortedPorts = Object.entries(portStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 30);
+
+    sortedPorts.forEach(([port, count]) => {
+        const service = PORT_SERVICES[port] || 'Unknown';
+        html += `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 10px; font-weight: 600;">${port}</td>
+                <td style="padding: 10px;">${service}</td>
+                <td style="padding: 10px; text-align: right;">${count}</td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table></div>';
+
+    // Protocol Statistics
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Protocol Distribution</h3>';
+    html += '<div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
+
+    Object.entries(serviceStats).forEach(([protocol, count]) => {
+        html += `
+            <div class="summary-card">
+                <div class="summary-label">${protocol.toUpperCase()}</div>
+                <div class="summary-value">${count}</div>
+            </div>
+        `;
+    });
+
+    html += '</div></div>';
+
+    resultsDiv.innerHTML = html;
+
+    // Update cache stats
+    getWhoisCacheStats().then(count => {
+        const el = document.getElementById('dbCacheCount');
+        if (el) {
+            if (supabaseClient) {
+                el.innerHTML = `<strong>${count}</strong> IPs cached (saves API calls)`;
+            } else {
+                el.innerHTML = '<span style="color: #ffd700;">⚠ Database not connected - WHOIS results won\'t be cached</span>';
+            }
+        }
+    });
+}
+
+async function viewWhoisCache() {
+    if (!supabaseClient) {
+        alert('Database not connected. Please configure Supabase in Tower Management > Cloud Config');
+        return;
+    }
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('ip_whois')
+            .select('*')
+            .order('lookup_date', { ascending: false })
+            .limit(100);
+
+        if (error) throw error;
+
+        // Create modal to display cache
+        let modal = document.getElementById('whoisCacheModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'whoisCacheModal';
+            modal.className = 'settings-modal';
+            document.body.appendChild(modal);
+        }
+
+        let html = '<div class="settings-content" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">';
+        html += '<h3>WHOIS Cache Database <button class="btn-secondary" onclick="closeWhoisCache()" style="float: right;">Close</button></h3>';
+        html += '<p style="color: var(--text-secondary); margin-bottom: 15px;">Last 100 cached IP lookups (most recent first)</p>';
+
+        if (data && data.length > 0) {
+            html += '<table class="data-table" style="width: 100%;">';
+            html += '<thead><tr style="background: var(--primary-color); color: white;">';
+            html += '<th style="padding: 10px;">IP Address</th>';
+            html += '<th style="padding: 10px;">Organization</th>';
+            html += '<th style="padding: 10px;">Location</th>';
+            html += '<th style="padding: 10px;">Lookup Date</th>';
+            html += '</tr></thead><tbody>';
+
+            data.forEach(record => {
+                const date = new Date(record.lookup_date).toLocaleDateString();
+                html += `<tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 8px; font-family: monospace;">${record.ip_address}</td>
+                    <td style="padding: 8px;">${record.organization || 'Unknown'}</td>
+                    <td style="padding: 8px;">${record.city || ''} ${record.country || ''}</td>
+                    <td style="padding: 8px; font-size: 0.85rem;">${date}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+        } else {
+            html += '<p style="color: var(--text-secondary);">No cached IPs yet. Run WHOIS lookups to build the cache.</p>';
+        }
+
+        html += '</div>';
+        modal.innerHTML = html;
+        modal.style.display = 'block';
+    } catch (error) {
+        console.error('Error viewing cache:', error);
+        alert('Error loading cache: ' + error.message);
+    }
+}
+
+function closeWhoisCache() {
+    const modal = document.getElementById('whoisCacheModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function formatAppName(app) {
+    const names = {
+        'facebook': 'Facebook',
+        'instagram': 'Instagram',
+        'whatsapp': 'WhatsApp',
+        'apple': 'Apple Services',
+        'apple-apns': 'Apple Push Notifications',
+        'google': 'Google Services',
+        'google-gcm': 'Google Cloud Messaging',
+        'microsoft': 'Microsoft',
+        'telegram': 'Telegram',
+        'signal': 'Signal',
+        'tiktok': 'TikTok',
+        'snapchat': 'Snapchat',
+        'twitter': 'Twitter/X',
+        'netflix': 'Netflix',
+        'amazon': 'Amazon',
+        'voip-sip': 'VoIP/SIP Calling',
+        'cloudflare': 'Cloudflare CDN',
+        'verizon': 'Verizon Network',
+        'tmobile': 'T-Mobile Network',
+        'att': 'AT&T Network',
+        // Banking & Financial
+        'bankofamerica': 'Bank of America',
+        'chase': 'Chase Bank',
+        'wellsfargo': 'Wells Fargo',
+        'paypal': 'PayPal',
+        'venmo': 'Venmo',
+        'cashapp': 'Cash App',
+        'zelle': 'Zelle',
+        'coinbase': 'Coinbase',
+        'robinhood': 'Robinhood',
+        // Messaging & Communication
+        'discord': 'Discord',
+        'slack': 'Slack',
+        'zoom': 'Zoom',
+        'skype': 'Skype',
+        'gmail': 'Gmail',
+        'outlook': 'Outlook',
+        'yahoo': 'Yahoo Mail',
+        // Other Services
+        'spotify': 'Spotify',
+        'uber': 'Uber',
+        'lyft': 'Lyft',
+        'doordash': 'DoorDash',
+        'instacart': 'Instacart',
+    };
+    return names[app] || app;
+}
+
+function categorizeApp(app) {
+    const categories = {
+        // Messaging
+        'whatsapp': 'Messaging',
+        'telegram': 'Messaging',
+        'signal': 'Messaging',
+        'discord': 'Messaging',
+        'slack': 'Messaging',
+        // Social Media
+        'facebook': 'Social Media',
+        'instagram': 'Social Media',
+        'twitter': 'Social Media',
+        'snapchat': 'Social Media',
+        'tiktok': 'Social Media',
+        // System Services
+        'apple': 'System Service',
+        'apple-apns': 'Push Notifications',
+        'google': 'System Service',
+        'google-gcm': 'Push Notifications',
+        'microsoft': 'Productivity',
+        // Banking & Financial
+        'bankofamerica': 'Banking',
+        'chase': 'Banking',
+        'wellsfargo': 'Banking',
+        'paypal': 'Financial',
+        'venmo': 'Financial',
+        'cashapp': 'Financial',
+        'zelle': 'Financial',
+        'coinbase': 'Financial',
+        'robinhood': 'Financial',
+        // Communication
+        'voip-sip': 'Voice/Video Call',
+        'zoom': 'Voice/Video Call',
+        'skype': 'Voice/Video Call',
+        'gmail': 'Email',
+        'outlook': 'Email',
+        'yahoo': 'Email',
+        // Entertainment
+        'netflix': 'Streaming',
+        'spotify': 'Streaming',
+        // Services
+        'amazon': 'E-Commerce/Cloud',
+        'uber': 'Transportation',
+        'lyft': 'Transportation',
+        'doordash': 'Food Delivery',
+        'instacart': 'Food Delivery',
+    };
+    return categories[app] || 'Other';
+}
+
+function getCategoryColor(category) {
+    const colors = {
+        'Messaging': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        'Social Media': 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+        'System Service': 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+        'Push Notifications': 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+        'Voice/Video Call': 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+        'Streaming': 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+        'Banking': 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)',
+        'Financial': 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)',
+        'E-Commerce/Cloud': 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
+        'Productivity': 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+        'Email': 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
+        'Transportation': 'linear-gradient(135deg, #1abc9c 0%, #16a085 100%)',
+        'Food Delivery': 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
+        'Other': 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)',
+    };
+    return colors[category] || colors['Other'];
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+async function lookupWhois(ip) {
+    const displayId = 'whois-' + ip.replace(/:/g, '-');
+    const displayEl = document.getElementById(displayId);
+
+    // Check in-memory cache first
+    if (ipWhoisCache[ip]) {
+        displayEl.innerHTML = ipWhoisCache[ip];
+        return;
+    }
+
+    displayEl.innerHTML = '<span style="color: var(--info-color);">Loading...</span>';
+
+    try {
+        // Step 1: Check database first
+        if (supabaseClient) {
+            const { data: dbData, error: dbError } = await supabaseClient
+                .from('ip_whois')
+                .select('*')
+                .eq('ip_address', ip)
+                .single();
+
+            if (!dbError && dbData) {
+                // Found in database - use cached data
+                const info = formatWhoisInfo(dbData);
+                ipWhoisCache[ip] = info;
+                displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
+                return;
+            }
+        }
+
+        // Step 2: Not in database - perform API lookup
+        const response = await fetch(`https://ipapi.co/${ip}/json/`);
+        const data = await response.json();
+
+        if (!data.error) {
+            // Step 3: Store in database for future use
+            if (supabaseClient) {
+                await supabaseClient
+                    .from('ip_whois')
+                    .upsert({
+                        ip_address: ip,
+                        organization: data.org || data.asn || 'Unknown',
+                        country: data.country_name || '',
+                        city: data.city || '',
+                        region: data.region || '',
+                        asn: data.asn || '',
+                        isp: data.org || '',
+                        lookup_date: new Date().toISOString()
+                    }, {
+                        onConflict: 'ip_address'
+                    });
+            }
+
+            const info = formatWhoisInfo({
+                organization: data.org || data.asn || 'Unknown',
+                country: data.country_name || '',
+                city: data.city || ''
+            });
+            ipWhoisCache[ip] = info;
+            displayEl.innerHTML = info;
+        } else {
+            displayEl.innerHTML = '<span style="color: var(--danger-color);">Failed</span>';
+        }
+    } catch (error) {
+        console.error('WHOIS lookup error:', error);
+        displayEl.innerHTML = '<span style="color: var(--danger-color);">Error</span>';
+    }
+
+    // Rate limit: wait 1.5 seconds between requests (ipapi.co free tier: 1000/day, ~1 req/sec recommended)
+    await new Promise(resolve => setTimeout(resolve, 1500));
+}
+
+function formatWhoisInfo(data) {
+    return `<div style="font-size: 0.85rem; margin-top: 5px;">
+        <strong>${data.organization || 'Unknown'}</strong><br>
+        ${data.country || ''} ${data.city ? '- ' + data.city : ''}
+    </div>`;
+}
+
+async function performBulkWhois() {
+    const progressEl = document.getElementById('whoisProgress');
+
+    // Get all IP elements that need lookup
+    const ipElements = document.querySelectorAll('[id^="whois-"]');
+    const ipsToLookup = Array.from(ipElements).map(el => {
+        const ip = el.id.replace('whois-', '').replace(/-/g, ':');
+        return { ip, element: el };
+    });
+
+    if (ipsToLookup.length === 0) {
+        progressEl.textContent = 'No IPs to lookup';
+        return;
+    }
+
+    const total = Math.min(ipsToLookup.length, 50); // Limit to 50 IPs
+    progressEl.innerHTML = `<span style="color: var(--info-color);">Looking up ${total} IPs...</span>`;
+
+    // Step 1: Bulk check database for all IPs
+    let dbHits = 0;
+    let apiCalls = 0;
+
+    if (supabaseClient) {
+        try {
+            const ipAddresses = ipsToLookup.slice(0, total).map(item => item.ip);
+            const { data: dbData, error: dbError } = await supabaseClient
+                .from('ip_whois')
+                .select('*')
+                .in('ip_address', ipAddresses);
+
+            if (!dbError && dbData) {
+                // Display all database hits immediately
+                dbData.forEach(record => {
+                    const displayId = 'whois-' + record.ip_address.replace(/:/g, '-');
+                    const displayEl = document.getElementById(displayId);
+                    if (displayEl) {
+                        const info = formatWhoisInfo({
+                            organization: record.organization,
+                            country: record.country,
+                            city: record.city
+                        });
+                        ipWhoisCache[record.ip_address] = info;
+                        displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
+                        dbHits++;
+                    }
+                });
+
+                progressEl.innerHTML = `<span style="color: var(--success-color);">Found ${dbHits} in cache, looking up remaining...</span>`;
+            }
+        } catch (error) {
+            console.error('Database bulk lookup error:', error);
+        }
+    }
+
+    // Step 2: API lookup for IPs not in database
+    for (let i = 0; i < total; i++) {
+        const { ip, element } = ipsToLookup[i];
+
+        // Skip if already loaded from database
+        if (ipWhoisCache[ip]) {
+            continue;
+        }
+
+        await lookupWhois(ip);
+        apiCalls++;
+        progressEl.innerHTML = `<span style="color: var(--info-color);">Progress: ${dbHits + apiCalls}/${total} (${dbHits} cached, ${apiCalls} new)</span>`;
+    }
+
+    progressEl.innerHTML = `<span style="color: var(--success-color);">Complete! ${dbHits} from cache, ${apiCalls} new lookups</span>`;
+    setTimeout(() => {
+        progressEl.textContent = '';
+    }, 5000);
+}
+
+function clearPacketAnalysis() {
+    packetData = [];
+    ipWhoisCache = {};
+    document.getElementById('packetResults').style.display = 'none';
+    document.getElementById('packetStatus').innerHTML = 'No packet data loaded';
+    document.getElementById('packetFileInput').value = '';
 }
 
 // Explicitly expose functions to the global scope to ensure buttons work
@@ -1426,6 +2208,12 @@ window.saveCloudSettings = saveCloudSettings;
 window.syncTowersFromCloud = syncTowersFromCloud;
 window.uploadTowersToCloud = uploadTowersToCloud;
 window.switchTab = switchTab;
+window.handlePacketUpload = handlePacketUpload;
+window.clearPacketAnalysis = clearPacketAnalysis;
+window.lookupWhois = lookupWhois;
+window.performBulkWhois = performBulkWhois;
+window.viewWhoisCache = viewWhoisCache;
+window.closeWhoisCache = closeWhoisCache;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

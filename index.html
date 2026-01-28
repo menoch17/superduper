@@ -15,6 +15,7 @@
         <nav class="tabs">
             <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
             <button class="tab-btn" onclick="switchTab('towerTab')">Tower Management</button>
+            <button class="tab-btn" onclick="switchTab('packetTab')">Packet Analysis</button>
         </nav>
 
         <div id="analyzerTab" class="tab-panel active">
@@ -55,6 +56,32 @@ Example message types this tool can parse:
                     style="margin-top: 15px; font-size: 0.95rem; color: var(--text-secondary); padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05);">
                     No tower list loaded
                 </div>
+            </div>
+        </div>
+
+        <div id="packetTab" class="tab-panel">
+            <div class="input-section">
+                <h2>Packet Data Analysis - Pen Register</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">Upload pen register CSV data to analyze IP addresses, identify services (messaging apps, banking, social media), and perform WHOIS lookups.</p>
+
+                <div id="dbNotConnectedWarning" style="display: none; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 15px; border-radius: 6px; margin-bottom: 15px; font-size: 0.9rem;">
+                    ⚠ <strong>Database not connected:</strong> WHOIS lookups won't be cached. Configure Supabase in <strong>Tower Management → Cloud Config</strong> to enable caching and save API calls.
+                </div>
+
+                <div class="button-row" style="display: flex; align-items: center; gap: 15px;">
+                    <input type="file" id="packetFileInput" accept=".csv" style="display: none;"
+                        onchange="handlePacketUpload(event)">
+                    <button class="btn-primary" onclick="document.getElementById('packetFileInput').click()">Upload Packet CSV</button>
+                    <button class="btn-secondary" onclick="clearPacketAnalysis()">Clear Results</button>
+                </div>
+                <div id="packetStatus"
+                    style="margin-top: 15px; font-size: 0.95rem; color: var(--text-secondary); padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05);">
+                    No packet data loaded
+                </div>
+            </div>
+
+            <div id="packetResults" style="margin-top: 20px; display: none;">
+                <!-- Analysis results will be displayed here -->
             </div>
         </div>
     </div>

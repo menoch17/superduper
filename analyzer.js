@@ -1484,17 +1484,39 @@ const PORT_SERVICES = {
     22: 'SSH',
     23: 'Telnet',
     25: 'SMTP (Email)',
+    67: 'DHCP Server',
+    68: 'DHCP Client',
+    69: 'TFTP',
+    88: 'Kerberos',
+    110: 'POP3 (Email)',
+    119: 'NNTP',
+    123: 'NTP',
+    135: 'MS RPC',
+    137: 'NetBIOS Name Service',
+    138: 'NetBIOS Datagram Service',
+    139: 'NetBIOS Session Service',
+    143: 'IMAP (Email)',
+    161: 'SNMP',
+    162: 'SNMP Trap',
+    179: 'BGP',
+    389: 'LDAP',
+    445: 'SMB/CIFS',
     53: 'DNS',
     80: 'HTTP',
-    110: 'POP3 (Email)',
-    143: 'IMAP (Email)',
     443: 'HTTPS',
     465: 'SMTPS (Secure Email)',
+    514: 'Syslog',
     587: 'SMTP Submission',
+    636: 'LDAPS',
     993: 'IMAPS (Secure Email)',
     995: 'POP3S (Secure Email)',
     3306: 'MySQL',
     3389: 'RDP',
+    1433: 'MSSQL',
+    1521: 'Oracle DB',
+    2049: 'NFS',
+    5432: 'PostgreSQL',
+    5900: 'VNC',
     5060: 'SIP (VoIP)',
     5061: 'SIP-TLS (Secure VoIP)',
     5223: 'Apple Push Notification / XMPP',
@@ -1664,6 +1686,13 @@ function identifyService(ip, port) {
     return 'Unknown';
 }
 
+function getPortServiceDisplay(port) {
+    const service = PORT_SERVICES[port];
+    if (service) return service;
+    const safePort = encodeURIComponent(port);
+    return `Unknown <a href="https://www.speedguide.net/port.php?port=${safePort}" target="_blank" rel="noopener noreferrer" style="color: var(--info-color); text-decoration: none;">(SpeedGuide)</a>`;
+}
+
 function detectApp(srcIP, dstIP, srcPort, dstPort, protocol) {
     const checkIP = (ip) => {
         for (const [app, ranges] of Object.entries(IP_RANGES)) {
@@ -1807,7 +1836,7 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         .slice(0, 30);
 
     sortedPorts.forEach(([port, count]) => {
-        const service = PORT_SERVICES[port] || 'Unknown';
+        const service = getPortServiceDisplay(port);
         html += `
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <td style="padding: 10px; font-weight: 600;">${port}</td>

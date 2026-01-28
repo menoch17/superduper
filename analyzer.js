@@ -1529,6 +1529,14 @@ function switchTab(tabId) {
             if (window.map) window.map.invalidateSize();
         }, 100);
     }
+    if (tabId === 'packetTab') {
+        const results = document.getElementById('resultsContainer');
+        if (results) results.style.display = 'none';
+    }
+    if (tabId === 'analyzerTab') {
+        const results = document.getElementById('resultsContainer');
+        if (results) results.style.display = '';
+    }
 
     // Check database connection when switching to packet tab
     if (tabId === 'packetTab') {

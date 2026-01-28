@@ -1282,6 +1282,14 @@ function switchTab(tabId) {
             if (window.map) window.map.invalidateSize();
         }, 100);
     }
+    if (tabId === 'packetTab') {
+        const results = document.getElementById('resultsContainer');
+        if (results) results.style.display = 'none';
+    }
+    if (tabId === 'analyzerTab') {
+        const results = document.getElementById('resultsContainer');
+        if (results) results.style.display = '';
+    }
 }
 
 // Explicitly expose functions to the global scope to ensure buttons work

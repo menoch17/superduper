@@ -1429,6 +1429,7 @@ function switchTab(tabId) {
 
 let packetData = [];
 let ipWhoisCache = {};
+let ipWhoisNameCache = {};
 
 // Known IP ranges for common services
 const IP_RANGES = {
@@ -1756,7 +1757,7 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     `;
     html += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
     html += '<thead><tr style="background: var(--primary-color); color: white;">';
-    html += '<th style="padding: 12px; text-align: left;">IP Address</th>';
+    html += '<th style="padding: 12px; text-align: left;">WHOIS / IP</th>';
     html += '<th style="padding: 12px; text-align: left;">Service</th>';
     html += '<th style="padding: 12px; text-align: right;">Packets</th>';
     html += '<th style="padding: 12px; text-align: right;">Bytes</th>';
@@ -1772,9 +1773,13 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     sortedIPs.forEach(([ip, data]) => {
         const ports = Array.from(data.ports).slice(0, 5).join(', ');
         const protocols = Array.from(data.protocols).join(', ');
+        const ipKey = ip.replace(/:/g, '-');
         html += `
             <tr style="border-bottom: 1px solid var(--border-color);">
-                <td style="padding: 10px; font-family: monospace;">${ip}</td>
+                <td style="padding: 10px;">
+                    <div id="whois-name-${ipKey}" style="font-weight: 600;">${ip}</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                </td>
                 <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
                 <td style="padding: 10px; text-align: right;">${data.packets}</td>
                 <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
@@ -1841,6 +1846,11 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
             }
         }
     });
+
+    // Auto-run WHOIS lookup for top IPs
+    setTimeout(() => {
+        performBulkWhois();
+    }, 0);
 }
 
 async function viewWhoisCache() {
@@ -2039,10 +2049,12 @@ function formatBytes(bytes) {
 async function lookupWhois(ip) {
     const displayId = 'whois-' + ip.replace(/:/g, '-');
     const displayEl = document.getElementById(displayId);
+    let delayMs = 1500;
 
     // Check in-memory cache first
     if (ipWhoisCache[ip]) {
         displayEl.innerHTML = ipWhoisCache[ip];
+        setWhoisName(ip, ipWhoisNameCache[ip] || ip);
         return;
     }
 
@@ -2061,23 +2073,30 @@ async function lookupWhois(ip) {
                 // Found in database - use cached data
                 const info = formatWhoisInfo(dbData);
                 ipWhoisCache[ip] = info;
+                ipWhoisNameCache[ip] = formatWhoisName(dbData, ip);
                 displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
+                setWhoisName(ip, ipWhoisNameCache[ip]);
                 return;
             }
         }
 
         // Step 2: Not in database - perform API lookup
-        const response = await fetch(`https://ipapi.co/${ip}/json/`);
+        const response = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+        if (!response.ok) {
+            if (response.status === 429) delayMs = 5000;
+            throw new Error(`WHOIS lookup failed (${response.status})`);
+        }
         const data = await response.json();
 
         if (!data.error) {
+            const orgName = data.org || data.asn || 'Unknown';
             // Step 3: Store in database for future use
             if (supabaseClient) {
                 await supabaseClient
                     .from('ip_whois')
                     .upsert({
                         ip_address: ip,
-                        organization: data.org || data.asn || 'Unknown',
+                        organization: orgName,
                         country: data.country_name || '',
                         city: data.city || '',
                         region: data.region || '',
@@ -2090,22 +2109,26 @@ async function lookupWhois(ip) {
             }
 
             const info = formatWhoisInfo({
-                organization: data.org || data.asn || 'Unknown',
+                organization: orgName,
                 country: data.country_name || '',
                 city: data.city || ''
             });
             ipWhoisCache[ip] = info;
+            ipWhoisNameCache[ip] = orgName || ip;
             displayEl.innerHTML = info;
+            setWhoisName(ip, ipWhoisNameCache[ip]);
         } else {
-            displayEl.innerHTML = '<span style="color: var(--danger-color);">Failed</span>';
+            displayEl.innerHTML = '<span style="color: var(--text-secondary);">Unavailable</span>';
+            setWhoisName(ip, ip);
         }
     } catch (error) {
         console.error('WHOIS lookup error:', error);
-        displayEl.innerHTML = '<span style="color: var(--danger-color);">Error</span>';
+        displayEl.innerHTML = '<span style="color: var(--text-secondary);">Unavailable</span>';
+        setWhoisName(ip, ip);
     }
 
     // Rate limit: wait 1.5 seconds between requests (ipapi.co free tier: 1000/day, ~1 req/sec recommended)
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, delayMs));
 }
 
 function formatWhoisInfo(data) {
@@ -2113,6 +2136,15 @@ function formatWhoisInfo(data) {
         <strong>${data.organization || 'Unknown'}</strong><br>
         ${data.country || ''} ${data.city ? '- ' + data.city : ''}
     </div>`;
+}
+
+function formatWhoisName(data, fallbackIp) {
+    return (data && (data.organization || data.asn)) ? (data.organization || data.asn) : fallbackIp;
+}
+
+function setWhoisName(ip, name) {
+    const nameEl = document.getElementById('whois-name-' + ip.replace(/:/g, '-'));
+    if (nameEl) nameEl.textContent = name || ip;
 }
 
 async function performBulkWhois() {
@@ -2157,7 +2189,9 @@ async function performBulkWhois() {
                             city: record.city
                         });
                         ipWhoisCache[record.ip_address] = info;
+                        ipWhoisNameCache[record.ip_address] = formatWhoisName(record, record.ip_address);
                         displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
+                        setWhoisName(record.ip_address, ipWhoisNameCache[record.ip_address]);
                         dbHits++;
                     }
                 });
@@ -2192,6 +2226,7 @@ async function performBulkWhois() {
 function clearPacketAnalysis() {
     packetData = [];
     ipWhoisCache = {};
+    ipWhoisNameCache = {};
     document.getElementById('packetResults').style.display = 'none';
     document.getElementById('packetStatus').innerHTML = 'No packet data loaded';
     document.getElementById('packetFileInput').value = '';

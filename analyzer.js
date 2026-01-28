@@ -1689,8 +1689,34 @@ function identifyService(ip, port) {
 function getPortServiceDisplay(port) {
     const service = PORT_SERVICES[port];
     if (service) return service;
+    const iana = getIanaPortDisplay(port);
+    if (iana) return iana;
     const safePort = encodeURIComponent(port);
     return `Unknown <a href="https://www.speedguide.net/port.php?port=${safePort}" target="_blank" rel="noopener noreferrer" style="color: var(--info-color); text-decoration: none;">(SpeedGuide)</a>`;
+}
+
+function getIanaPortDisplay(port) {
+    if (!window.IANA_PORTS) return null;
+    const entries = window.IANA_PORTS[port];
+    if (!entries || !entries.length) return null;
+    const labels = [];
+    const seen = new Set();
+    for (const entry of entries) {
+        const service = (entry.service || entry.description || '').trim();
+        if (!service) continue;
+        const proto = (entry.protocol || '').trim().toUpperCase();
+        const label = proto ? `${proto}/${service}` : service;
+        const key = label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        labels.push(label);
+    }
+    if (!labels.length) return null;
+    const full = labels.join(', ');
+    const maxItems = 4;
+    const short = labels.length > maxItems ? `${labels.slice(0, maxItems).join(', ')} +${labels.length - maxItems} more` : full;
+    const escapedFull = full.replace(/\"/g, '&quot;');
+    return `<span title="${escapedFull}">${short}</span>`;
 }
 
 function detectApp(srcIP, dstIP, srcPort, dstPort, protocol) {

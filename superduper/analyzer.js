@@ -119,6 +119,7 @@ class CDCAnalyzer {
         else if (block.includes('ims_3GPP_VoIP_answer') || (block.includes('answer') && block.includes('answering'))) result.type = 'answer';
         else if (block.includes('ims_3GPP_VoIP_release') || (block.includes('release') && block.includes('cause'))) result.type = 'release';
         else if (block.includes('ims_3GPP_VoIP_directSignalReporting') || block.includes('directSignalReporting')) result.type = 'directSignalReporting';
+        else if (block.includes('ims_3GPP_VoIP_subjectSignal') || block.includes('subjectSignal')) result.type = 'subjectSignal';
         else if (block.includes('ims_3GPP_VoIP_ccOpen') || block.includes('ccOpen')) result.type = 'ccOpen';
         else if (block.includes('ims_3GPP_VoIP_ccClose') || block.includes('ccClose')) result.type = 'ccClose';
         else if (block.includes('smsMessage')) result.type = 'smsMessage';
@@ -136,6 +137,7 @@ class CDCAnalyzer {
                 result.data = this.parseAttemptMessage(block);
                 break;
             case 'directSignalReporting':
+            case 'subjectSignal':
                 result.data = this.parseSIPMessage(block);
                 break;
             case 'ccOpen':
@@ -207,7 +209,7 @@ class CDCAnalyzer {
     parseSIPMessage(block) {
         const data = { sipMessages: [], correlationId: null };
         data.correlationId = this.extractField(block, 'correlationID');
-        const sigMsgMatch = block.match(/(?:sigMsg|signalingMsg)\s*=\s*([\s\S]*?)(?=\[bin\]|$)/i);
+        const sigMsgMatch = block.match(/(?:sigMsg|signalingMsg(?:\[\d+\])?)\s*=\s*([\s\S]*?)(?=\[bin\]|$)/i);
         if (sigMsgMatch) {
             const sipContent = decodePossibleHex(sigMsgMatch[1]);
             data.sipMessages.push({

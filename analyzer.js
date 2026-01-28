@@ -150,6 +150,7 @@ class CDCAnalyzer {
                 result.data = this.parseAttemptMessage(block);
                 break;
             case 'directSignalReporting':
+            case 'subjectSignal':
                 result.data = this.parseSIPMessage(block);
                 break;
             case 'ccOpen':
@@ -273,7 +274,7 @@ class CDCAnalyzer {
     parseSIPMessage(block) {
         const data = { sipMessages: [], correlationId: null };
         data.correlationId = this.extractField(block, 'correlationID');
-        const sigMsgMatch = block.match(/(?:sigMsg|signalingMsg)\s*=\s*([\s\S]*?)(?=\[bin\]|$)/i);
+        const sigMsgMatch = block.match(/(?:sigMsg|signalingMsg(?:\[\d+\])?)\s*=\s*([\s\S]*?)(?=\[bin\]|$)/i);
         if (sigMsgMatch) {
             const sipContent = decodePossibleHex(sigMsgMatch[1]);
             data.sipMessages.push({
@@ -434,6 +435,7 @@ class CDCAnalyzer {
                 if (message.data.called) call.calledParty = message.data.called;
                 break;
             case 'directSignalReporting':
+            case 'subjectSignal':
                 if (message.data.sipMessages) {
                     for (const sip of message.data.sipMessages) {
                         call.sipMessages.push({ timestamp: message.timestamp, ...sip });

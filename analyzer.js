@@ -1175,7 +1175,8 @@ function parseTowerCSV(text) {
 
     const colIdx = {
         lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
-        cid: headers.findIndex(h => h === 'cgi' || h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
+        cid: headers.findIndex(h => h === 'cell id' || h === 'cellid' || h.includes('cell identifier') || h === 'cell_id' || h === 'eci' || h === 'ci'),
+        cgi: headers.findIndex(h => h === 'cgi' || h.includes('cell global id')),
         lat: headers.findIndex(h => h === 'lat' || h.includes('latitude') || h === 'y' || h === 'site_latitude' || h === 'sector_latitude'),
         lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x' || h === 'site_longitude' || h === 'sector_longitude'),
         address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
@@ -1203,7 +1204,8 @@ function parseTowerCSV(text) {
         if (row.length < 2) continue;
 
         let lac = colIdx.lac !== -1 ? row[colIdx.lac] : null;
-        const cid = row[colIdx.cid];
+        let cid = row[colIdx.cid];
+        const cgiVal = colIdx.cgi !== -1 ? row[colIdx.cgi] : null;
         const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]) : null;
         const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]) : null;
         const address = colIdx.address !== -1 ? row[colIdx.address] : null;
@@ -1218,6 +1220,11 @@ function parseTowerCSV(text) {
         }
 
         if (lac && cid) {
+            const cgiNum = cgiVal && /^\d+$/.test(cgiVal) ? parseInt(cgiVal, 10) : null;
+            const cidNum = /^\d+$/.test(cid) ? parseInt(cid, 10) : null;
+            if (Number.isFinite(cgiNum) && Number.isFinite(cidNum) && cgiNum > 1000000 && cidNum < 1000) {
+                cid = cgiVal;
+            }
             const key = `${lac}-${cid}`;
             towerDatabase.set(key, {
                 lat: isNaN(lat) ? null : lat,

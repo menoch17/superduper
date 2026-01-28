@@ -1651,6 +1651,54 @@ const PORT_SERVICES = {
     8443: 'HTTPS Alternate',
 };
 
+const PORT_SERVICE_DESCRIPTIONS = {
+    20: 'FTP data channel used for actual file transfers in classic FTP sessions; control commands are on port 21.',
+    21: 'FTP control channel for authentication and file operation commands; actual data transfers use port 20 or negotiated passive ports.',
+    22: 'SSH provides encrypted remote login, command execution, and tunneling; commonly used for secure admin access.',
+    23: 'Telnet is a legacy remote login protocol that sends data in cleartext and is generally considered insecure.',
+    25: 'SMTP is used to relay email between servers; it is typically not used for end‑user submission.',
+    53: 'DNS resolves hostnames to IP addresses and handles reverse lookups; used by both UDP and TCP.',
+    67: 'DHCP server port used to offer and lease IP addresses to clients on a network.',
+    68: 'DHCP client port used by devices to request and renew IP addresses from DHCP servers.',
+    69: 'TFTP is a simple, unauthenticated file transfer protocol often used for device bootstrapping.',
+    88: 'Kerberos authentication protocol for secure ticket‑based identity and service access.',
+    110: 'POP3 is a legacy email retrieval protocol that downloads messages to the client.',
+    119: 'NNTP is used for Usenet news distribution and client access to newsgroups.',
+    123: 'NTP synchronizes device clocks for accurate timekeeping and log correlation.',
+    135: 'Microsoft RPC endpoint mapper used by Windows services to discover dynamic RPC ports.',
+    137: 'NetBIOS name service used for name registration and discovery on legacy Windows networks.',
+    138: 'NetBIOS datagram service used for connectionless communications on legacy Windows networks.',
+    139: 'NetBIOS session service used for file and printer sharing on legacy Windows networks.',
+    143: 'IMAP provides server‑side email access and folder synchronization for clients.',
+    161: 'SNMP is used to query and monitor network devices such as routers, switches, and servers.',
+    162: 'SNMP trap port used by devices to send unsolicited alerts to monitoring systems.',
+    179: 'BGP is the core routing protocol used between autonomous systems on the internet.',
+    389: 'LDAP is used for directory services (users, groups, devices) and enterprise identity queries.',
+    445: 'SMB/CIFS provides Windows file sharing, authentication, and related services.',
+    80: 'HTTP is standard unencrypted web traffic for websites and APIs.',
+    443: 'HTTPS is encrypted web traffic (TLS) for websites, APIs, and secure services.',
+    465: 'SMTPS is SMTP over implicit TLS for secure email submission.',
+    514: 'Syslog is used to transmit system and security logs to centralized log servers.',
+    587: 'SMTP submission port for authenticated client email sending (STARTTLS).',
+    636: 'LDAPS is LDAP over TLS for secure directory queries and authentication.',
+    993: 'IMAPS is IMAP over TLS for secure email access.',
+    995: 'POP3S is POP3 over TLS for secure email retrieval.',
+    3306: 'MySQL database service port for client connections.',
+    3389: 'RDP provides remote desktop access to Windows systems.',
+    1433: 'Microsoft SQL Server database service port.',
+    1521: 'Oracle database listener port for client connections.',
+    2049: 'NFS provides network file sharing commonly on UNIX/Linux systems.',
+    5432: 'PostgreSQL database service port.',
+    5900: 'VNC provides remote desktop control, often for cross‑platform access.',
+    5060: 'SIP is used for VoIP call signaling and session setup (unencrypted).',
+    5061: 'SIP‑TLS is encrypted SIP signaling for VoIP sessions.',
+    5223: 'Apple Push Notification service and related messaging traffic.',
+    5228: 'Google Cloud Messaging / FCM legacy port for push notifications.',
+    5242: 'Viber messaging and signaling port used by the client.',
+    8080: 'Alternate HTTP port commonly used by proxies or internal web services.',
+    8443: 'Alternate HTTPS port commonly used by web apps and management consoles.'
+};
+
 function handlePacketUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -1819,7 +1867,14 @@ function identifyService(ip, port) {
 
 function getPortServiceDisplay(port) {
     const service = PORT_SERVICES[port];
-    if (service) return service;
+    if (service) {
+        const desc = PORT_SERVICE_DESCRIPTIONS[port];
+        if (desc) {
+            const escapedDesc = desc.replace(/\"/g, '&quot;');
+            return `<span title="${escapedDesc}">${service}</span>`;
+        }
+        return service;
+    }
     const iana = getIanaPortDisplay(port);
     if (iana) return iana;
     const safePort = encodeURIComponent(port);

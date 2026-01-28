@@ -2051,6 +2051,12 @@ async function lookupWhois(ip) {
     const displayEl = document.getElementById(displayId);
     let delayMs = 1500;
 
+    if (isPrivateOrReservedIP(ip)) {
+        displayEl.innerHTML = '<span style="color: var(--text-secondary);">Private/Reserved</span>';
+        setWhoisName(ip, 'Private/Reserved');
+        return;
+    }
+
     // Check in-memory cache first
     if (ipWhoisCache[ip]) {
         displayEl.innerHTML = ipWhoisCache[ip];
@@ -2083,7 +2089,7 @@ async function lookupWhois(ip) {
         // Step 2: Not in database - perform API lookup
         const response = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
         if (!response.ok) {
-            if (response.status === 429) delayMs = 5000;
+            if (response.status === 429) delayMs = 7000;
             throw new Error(`WHOIS lookup failed (${response.status})`);
         }
         const data = await response.json();
@@ -2123,7 +2129,8 @@ async function lookupWhois(ip) {
         }
     } catch (error) {
         console.error('WHOIS lookup error:', error);
-        displayEl.innerHTML = '<span style="color: var(--text-secondary);">Unavailable</span>';
+        const msg = error.message && error.message.includes('429') ? 'Rate limited' : 'Unavailable';
+        displayEl.innerHTML = `<span style="color: var(--text-secondary);">${msg}</span>`;
         setWhoisName(ip, ip);
     }
 
@@ -2145,6 +2152,34 @@ function formatWhoisName(data, fallbackIp) {
 function setWhoisName(ip, name) {
     const nameEl = document.getElementById('whois-name-' + ip.replace(/:/g, '-'));
     if (nameEl) nameEl.textContent = name || ip;
+}
+
+function isPrivateOrReservedIP(ip) {
+    if (!ip) return true;
+    const ipv4 = ip.split('.');
+    if (ipv4.length === 4) {
+        const nums = ipv4.map(n => parseInt(n, 10));
+        if (nums.some(n => isNaN(n) || n < 0 || n > 255)) return true;
+        const [a, b] = nums;
+        if (a === 10) return true;
+        if (a === 127) return true;
+        if (a === 0) return true;
+        if (a === 169 && b === 254) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 192 && b === 168) return true;
+        if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+        if (a >= 224) return true; // multicast/reserved
+        return false;
+    }
+
+    const lower = ip.toLowerCase();
+    if (lower === '::' || lower === '::1') return true;
+    if (lower.startsWith('fe80:')) return true; // link-local
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA
+    if (lower.startsWith('ff')) return true; // multicast
+    if (lower.startsWith('fec0:')) return true; // site-local (deprecated)
+    if (lower.startsWith('2001:db8')) return true; // documentation
+    return false;
 }
 
 async function performBulkWhois() {

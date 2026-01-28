@@ -265,12 +265,17 @@ class CDCAnalyzer {
         return null;
     }
 
+    // Detect and decode hex-encoded SIP messages (common in signalingMsg fields)
+    decodeHexPayload(text) {
+        return decodePossibleHex(text);
+    }
+
     parseSIPMessage(block) {
         const data = { sipMessages: [], correlationId: null };
         data.correlationId = this.extractField(block, 'correlationID');
-        const sigMsgMatch = block.match(/sigMsg\s*=\s*([\s\S]*?)(?=\[bin\]|$)/);
+        const sigMsgMatch = block.match(/(?:sigMsg|signalingMsg)\s*=\s*([\s\S]*?)(?=\[bin\]|$)/i);
         if (sigMsgMatch) {
-            const sipContent = sigMsgMatch[1].trim();
+            const sipContent = decodePossibleHex(sigMsgMatch[1]);
             data.sipMessages.push({
                 content: sipContent,
                 parsed: this.parseSIPContent(sipContent)
@@ -281,7 +286,7 @@ class CDCAnalyzer {
 
     parseSIPContent(sipContent) {
         const parsed = { method: null, statusCode: null, statusText: null, headers: {}, isRequest: false, isResponse: false };
-        const lines = sipContent.split('\n');
+        const lines = sipContent.replace(/\r\n/g, '\n').split('\n');
         if (lines.length === 0) return parsed;
         const firstLine = lines[0].trim();
 
@@ -515,6 +520,35 @@ class CDCAnalyzer {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
         return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+}
+
+function decodePossibleHex(text) {
+    if (!text) return '';
+    const raw = String(text).trim();
+    const compact = raw.replace(/\s+/g, '');
+    const hex = compact.startsWith('0x') ? compact.slice(2) : compact;
+    if (!isLikelyHex(hex)) return raw.trim();
+    const decoded = decodeHexToString(hex);
+    return decoded || raw.trim();
+}
+
+function isLikelyHex(value) {
+    if (!value || value.length < 2) return false;
+    if (value.length % 2 !== 0) return false;
+    return /^[0-9a-fA-F]+$/.test(value);
+}
+
+function decodeHexToString(hex) {
+    try {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+        }
+        const decoder = new TextDecoder('utf-8');
+        return decoder.decode(bytes);
+    } catch (e) {
+        return '';
     }
 }
 

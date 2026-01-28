@@ -358,6 +358,42 @@ button {
     overflow: hidden;
 }
 
+.packet-apps .app-card {
+    color: #0c1016;
+    border-color: rgba(12, 16, 22, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.packet-apps .app-card .summary-label,
+.packet-apps .app-card .summary-value {
+    color: #0c1016;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.packet-apps .app-card div[style*="font-size: 0.85rem"] {
+    color: rgba(12, 16, 22, 0.8) !important;
+}
+
+.packet-apps .app-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.2));
+    mix-blend-mode: screen;
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.packet-apps .app-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(120deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.2));
+    opacity: 0.35;
+    pointer-events: none;
+}
+
 .summary-card::after {
     content: '';
     position: absolute;

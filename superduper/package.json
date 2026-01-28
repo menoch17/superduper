@@ -1,0 +1,13 @@
+{
+  "name": "superduper-cdc-analyzer",
+  "version": "1.0.0",
+  "description": "CDC Messaging Analyzer tool for Law Enforcement",
+  "main": "index.html",
+  "scripts": {
+    "start": "servor",
+    "build": "echo 'No build step required for static deployment'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

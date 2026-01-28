@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CDC Messaging Analyzer - Law Enforcement Tool</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- External Libraries (Mapping & Diagrams) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+
+<body>
+    <div class="container">
+        <nav class="tabs">
+            <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
+            <button class="tab-btn" onclick="switchTab('towerTab')">Tower Management</button>
+        </nav>
+
+        <div id="analyzerTab" class="tab-panel active">
+            <div class="input-section">
+                <h2>Paste CDC Data Below</h2>
+                <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
+
+Example message types this tool can parse:
+- termAttempt / origAttempt (Call attempts)
+- IMS VoIP CII Version 3 (New format)
+- directSignalReporting (SIP signaling)
+- ccOpen / ccClose (Content channel)
+- SMS/MMS messages"></textarea>
+                <div class="button-row">
+                    <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
+                    <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                    <button class="btn-secondary" onclick="loadSample()">Load Sample</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="towerTab" class="tab-panel">
+            <div class="input-section">
+                <h2>Tower Database Management</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">Manage your local tower CSV files and sync
+                    with the cloud database.</p>
+                <div class="button-row" style="display: flex; align-items: center; gap: 15px;">
+                    <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
+                        onchange="handleTowerUpload(event)">
+                    <button class="btn-secondary" onclick="document.getElementById('towerFileInput').click()">Load Local
+                        CSV</button>
+                    <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()"
+                        style="font-size: 0.9rem; padding: 10px 15px;">Sync from Cloud</button>
+                    <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
+                        style="font-size: 0.9rem; display: none;">Upload to Cloud</button>
+                    <button class="btn-secondary" onclick="toggleSettings()">Cloud Config</button>
+                </div>
+                <div id="towerStatus"
+                    style="margin-top: 15px; font-size: 0.95rem; color: var(--text-secondary); padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.05);">
+                    No tower list loaded
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="results-container" id="resultsContainer">
+        <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
+            <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call / Event:</label>
+            <select id="callSelector" onchange="switchCall(this.value)"
+                style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
+            <button class="btn-secondary" onclick="exportCSV()"
+                style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
+        </div>
+        <div id="callDetails">
+            <!-- Results will be inserted here -->
+        </div>
+    </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="constants.js"></script>
+    <script src="analyzer.js"></script>
+
+    <!-- Cloud Settings Panel -->
+    <div id="cloudSettings" class="settings-modal" style="display: none;">
+        <div class="settings-content">
+            <h3>Cloud Configuration (Supabase)</h3>
+            <div class="settings-group">
+                <label for="supabaseUrl">Supabase URL</label>
+                <input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co">
+            </div>
+            <div class="settings-group">
+                <label for="supabaseKey">Anon Key</label>
+                <input type="password" id="supabaseKey" placeholder="your-anon-key">
+            </div>
+            <div class="settings-buttons">
+                <button class="btn-primary" onclick="saveCloudSettings()">Save & Connect</button>
+                <button class="btn-secondary" onclick="toggleSettings()">Close</button>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

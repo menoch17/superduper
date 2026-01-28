@@ -39,6 +39,12 @@ const CDC_STANDARDS = {
                 description: 'Carries SIP/SDP bodies, headers (P-Asserted-Identity, User-Agent, P-Access-Network-Info) and can include PANI-encoded tower info.'
             },
             {
+                id: 'subjectSignal',
+                displayName: 'Subject Signal',
+                keywords: ['subjectsignal', 'ims_3gpp_voip_subjectsignal'],
+                description: 'Subject signaling that can carry SIP bodies and PANI headers for tower mapping.'
+            },
+            {
                 id: 'ccOpen',
                 displayName: 'Media Channel Open',
                 keywords: ['ccopen', 'ims_3gpp_voip_ccopen'],
@@ -97,6 +103,12 @@ const CDC_STANDARDS = {
                 displayName: 'IMS Direct Signal Reporting',
                 keywords: ['ims_3gpp_voip_directsignalreporting'],
                 description: 'Carries SIP request/response bodies captured during the call.'
+            },
+            {
+                id: 'subjectSignal',
+                displayName: 'IMS Subject Signal',
+                keywords: ['ims_3gpp_voip_subjectsignal'],
+                description: 'IMS subject signaling that can include SIP payloads.'
             },
             {
                 id: 'ccOpen',

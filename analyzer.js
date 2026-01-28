@@ -123,6 +123,7 @@ class CDCAnalyzer {
         }
         if (normalized.includes('smsmessage')) return 'smsMessage';
         if (normalized.includes('mmsmessage')) return 'mmsMessage';
+        if (normalized.includes('subjectsignal')) return 'subjectSignal';
         return null;
     }
 

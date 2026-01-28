@@ -2295,20 +2295,20 @@ function categorizeApp(app) {
 
 function getCategoryColor(category) {
     const colors = {
-        'Messaging': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        'Social Media': 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-        'System Service': 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-        'Push Notifications': 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-        'Voice/Video Call': 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-        'Streaming': 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
-        'Banking': 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)',
-        'Financial': 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)',
-        'E-Commerce/Cloud': 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
-        'Productivity': 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
-        'Email': 'linear-gradient(135deg, #3498db 0%, #2980b9 100%)',
-        'Transportation': 'linear-gradient(135deg, #1abc9c 0%, #16a085 100%)',
-        'Food Delivery': 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)',
-        'Other': 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)',
+        'Messaging': 'linear-gradient(135deg, #e7edff 0%, #dce5ff 100%)',
+        'Social Media': 'linear-gradient(135deg, #ffe6ef 0%, #ffd9e6 100%)',
+        'System Service': 'linear-gradient(135deg, #e6f7ff 0%, #d8f2ff 100%)',
+        'Push Notifications': 'linear-gradient(135deg, #e6fff4 0%, #d3f9ea 100%)',
+        'Voice/Video Call': 'linear-gradient(135deg, #fff5dc 0%, #ffe9c2 100%)',
+        'Streaming': 'linear-gradient(135deg, #efe9ff 0%, #e0d6ff 100%)',
+        'Banking': 'linear-gradient(135deg, #e7fff0 0%, #d9f6e5 100%)',
+        'Financial': 'linear-gradient(135deg, #fff1dd 0%, #ffe4c4 100%)',
+        'E-Commerce/Cloud': 'linear-gradient(135deg, #fff3e8 0%, #ffe6d3 100%)',
+        'Productivity': 'linear-gradient(135deg, #ffe7f1 0%, #ffd9e9 100%)',
+        'Email': 'linear-gradient(135deg, #e6f1ff 0%, #d9e8ff 100%)',
+        'Transportation': 'linear-gradient(135deg, #e4fff8 0%, #d6f7f0 100%)',
+        'Food Delivery': 'linear-gradient(135deg, #ffe6e2 0%, #ffd6cf 100%)',
+        'Other': 'linear-gradient(135deg, #eef2f7 0%, #e3e9f2 100%)',
     };
     return colors[category] || colors['Other'];
 }

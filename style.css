@@ -374,6 +374,12 @@ button {
     color: rgba(12, 16, 22, 0.8) !important;
 }
 
+.packet-apps .app-card .app-category {
+    color: #0b1420;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
 .packet-apps .app-card::before {
     content: '';
     position: absolute;

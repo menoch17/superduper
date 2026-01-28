@@ -2000,7 +2000,7 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
                     <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 5px;">
                         ${formatBytes(data.bytes)} transferred<br>
                         ${data.ips.size} unique IPs<br>
-                        <span style="color: var(--warning-color); font-weight: 600;">${category}</span>
+                        <span class="app-category">${category}</span>
                     </div>
                 </div>
             `;

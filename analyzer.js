@@ -1695,6 +1695,7 @@ function detectApp(srcIP, dstIP, srcPort, dstPort, protocol) {
 }
 
 async function getWhoisCacheStats() {
+    if (!supabaseClient) initializeSupabase();
     if (!supabaseClient) return 0;
 
     try {
@@ -2051,6 +2052,8 @@ async function lookupWhois(ip) {
     const displayEl = document.getElementById(displayId);
     let delayMs = 1500;
 
+    if (!supabaseClient) initializeSupabase();
+
     if (isPrivateOrReservedIP(ip)) {
         displayEl.innerHTML = '<span style="color: var(--text-secondary);">Private/Reserved</span>';
         setWhoisName(ip, 'Private/Reserved');
@@ -2086,16 +2089,18 @@ async function lookupWhois(ip) {
             }
         }
 
-        // Step 2: Not in database - perform API lookup
-        const response = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
-        if (!response.ok) {
-            if (response.status === 429) delayMs = 7000;
-            throw new Error(`WHOIS lookup failed (${response.status})`);
-        }
-        const data = await response.json();
+        // Step 2: Not in database - perform API lookup (primary + fallback)
+        let whoisData = await fetchIpApiWhois(ip).catch(err => {
+            if (err && String(err.message || '').includes('429')) delayMs = 7000;
+            return null;
+        });
 
-        if (!data.error) {
-            const orgName = data.org || data.asn || 'Unknown';
+        if (!whoisData) {
+            whoisData = await fetchIpWhoisIo(ip).catch(() => null);
+        }
+
+        if (whoisData) {
+            const orgName = whoisData.organization || whoisData.asn || 'Unknown';
             // Step 3: Store in database for future use
             if (supabaseClient) {
                 await supabaseClient
@@ -2103,11 +2108,11 @@ async function lookupWhois(ip) {
                     .upsert({
                         ip_address: ip,
                         organization: orgName,
-                        country: data.country_name || '',
-                        city: data.city || '',
-                        region: data.region || '',
-                        asn: data.asn || '',
-                        isp: data.org || '',
+                        country: whoisData.country || '',
+                        city: whoisData.city || '',
+                        region: whoisData.region || '',
+                        asn: whoisData.asn || '',
+                        isp: whoisData.isp || '',
                         lookup_date: new Date().toISOString()
                     }, {
                         onConflict: 'ip_address'
@@ -2116,8 +2121,8 @@ async function lookupWhois(ip) {
 
             const info = formatWhoisInfo({
                 organization: orgName,
-                country: data.country_name || '',
-                city: data.city || ''
+                country: whoisData.country || '',
+                city: whoisData.city || ''
             });
             ipWhoisCache[ip] = info;
             ipWhoisNameCache[ip] = orgName || ip;
@@ -2136,6 +2141,40 @@ async function lookupWhois(ip) {
 
     // Rate limit: wait 1.5 seconds between requests (ipapi.co free tier: 1000/day, ~1 req/sec recommended)
     await new Promise(resolve => setTimeout(resolve, delayMs));
+}
+
+async function fetchIpApiWhois(ip) {
+    const response = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+    if (!response.ok) {
+        throw new Error(`WHOIS lookup failed (${response.status})`);
+    }
+    const data = await response.json();
+    if (data && !data.error) {
+        return {
+            organization: data.org || data.asn || '',
+            country: data.country_name || '',
+            city: data.city || '',
+            region: data.region || '',
+            asn: data.asn || '',
+            isp: data.org || ''
+        };
+    }
+    return null;
+}
+
+async function fetchIpWhoisIo(ip) {
+    const response = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data || data.success === false) return null;
+    return {
+        organization: (data.connection && (data.connection.org || data.connection.isp)) || data.org || '',
+        country: data.country || '',
+        city: data.city || '',
+        region: data.region || '',
+        asn: (data.connection && data.connection.asn) ? `AS${data.connection.asn}` : '',
+        isp: (data.connection && data.connection.isp) || ''
+    };
 }
 
 function formatWhoisInfo(data) {
@@ -2186,7 +2225,7 @@ async function performBulkWhois() {
     const progressEl = document.getElementById('whoisProgress');
 
     // Get all IP elements that need lookup
-    const ipElements = document.querySelectorAll('[id^="whois-"]');
+    const ipElements = document.querySelectorAll('span[id^="whois-"]');
     const ipsToLookup = Array.from(ipElements).map(el => {
         const ip = el.id.replace('whois-', '').replace(/-/g, ':');
         return { ip, element: el };
@@ -2204,6 +2243,7 @@ async function performBulkWhois() {
     let dbHits = 0;
     let apiCalls = 0;
 
+    if (!supabaseClient) initializeSupabase();
     if (supabaseClient) {
         try {
             const ipAddresses = ipsToLookup.slice(0, total).map(item => item.ip);

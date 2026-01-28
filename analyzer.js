@@ -1573,6 +1573,9 @@ let packetData = [];
 let ipWhoisCache = {};
 let ipWhoisNameCache = {};
 let packetTargetFilter = 'All';
+let reverseDnsCache = {};
+let lastPacketAnalysis = null;
+let reverseDnsStats = { attempted: false, found: 0, total: 0 };
 
 // Known IP ranges for common services
 const IP_RANGES = {
@@ -1796,6 +1799,13 @@ function analyzePacketData() {
     const serviceStats = {};
     const portStats = {};
     const appDetection = {};
+    const domainStats = {};
+    const hostStats = {};
+    const destinationStats = {};
+    const durationStats = {
+        all: [],
+        byProtocol: {}
+    };
 
     filteredPackets.forEach(packet => {
         const srcIP = packet['Source Address'];
@@ -1804,6 +1814,9 @@ function analyzePacketData() {
         const protocol = packet['Session Protocol'] || packet['Transport Protocol'];
         const bytes = parseInt(packet['Bytes']) || 0;
         const effectivePort = srcPort;
+        const durationSeconds = parseDurationToSeconds(packet['Duration']);
+        const domain = (packet['Domain'] || '').trim();
+        const host = (packet['Cached Associate Hostname'] || packet['Associate Host Name'] || '').trim();
 
         // Analyze source IP
         if (srcIP && srcIP !== '' && !srcIP.startsWith('fd00:')) {
@@ -1837,6 +1850,12 @@ function analyzePacketData() {
             ipAnalysis[dstIP].bytes += bytes;
             if (effectivePort) ipAnalysis[dstIP].ports.add(effectivePort);
             if (protocol) ipAnalysis[dstIP].protocols.add(protocol);
+
+            if (!destinationStats[dstIP]) {
+                destinationStats[dstIP] = { packets: 0, bytes: 0 };
+            }
+            destinationStats[dstIP].packets++;
+            destinationStats[dstIP].bytes += bytes;
         }
 
         // Track port usage
@@ -1847,6 +1866,34 @@ function analyzePacketData() {
         // Track protocols
         if (protocol && protocol !== '') {
             serviceStats[protocol] = (serviceStats[protocol] || 0) + 1;
+        }
+
+        // Domain stats
+        if (domain) {
+            if (!domainStats[domain]) {
+                domainStats[domain] = { count: 0, bytes: 0 };
+            }
+            domainStats[domain].count++;
+            domainStats[domain].bytes += bytes;
+        }
+
+        // Host stats
+        if (host) {
+            if (!hostStats[host]) {
+                hostStats[host] = { count: 0, bytes: 0 };
+            }
+            hostStats[host].count++;
+            hostStats[host].bytes += bytes;
+        }
+
+        // Duration stats
+        if (durationSeconds > 0) {
+            durationStats.all.push(durationSeconds);
+            const protoKey = protocol ? protocol.toUpperCase() : 'UNKNOWN';
+            if (!durationStats.byProtocol[protoKey]) {
+                durationStats.byProtocol[protoKey] = [];
+            }
+            durationStats.byProtocol[protoKey].push(durationSeconds);
         }
 
         // App detection
@@ -1862,7 +1909,17 @@ function analyzePacketData() {
         }
     });
 
-    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection);
+    lastPacketAnalysis = {
+        ipAnalysis,
+        serviceStats,
+        portStats,
+        appDetection,
+        domainStats,
+        hostStats,
+        durationStats,
+        destinationStats
+    };
+    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, domainStats, hostStats, durationStats, destinationStats);
 }
 
 function identifyService(ip, port) {
@@ -1893,9 +1950,10 @@ function getPortServiceDisplay(port) {
         return service;
     }
     const iana = getIanaPortDisplay(port);
-    if (iana) return iana;
     const safePort = encodeURIComponent(port);
-    return `Unknown <a href="https://www.speedguide.net/port.php?port=${safePort}" target="_blank" rel="noopener noreferrer" style="color: var(--info-color); text-decoration: none;">(SpeedGuide)</a>`;
+    const speedGuide = ` <a href="https://www.speedguide.net/port.php?port=${safePort}" target="_blank" rel="noopener noreferrer" style="color: var(--info-color); text-decoration: none;">(SpeedGuide)</a>`;
+    if (iana) return `${iana}${speedGuide}`;
+    return `Unknown${speedGuide}`;
 }
 
 function getIanaPortDisplay(port) {
@@ -1972,7 +2030,7 @@ async function getWhoisCacheStats() {
     }
 }
 
-function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection) {
+function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, domainStats, hostStats, durationStats, destinationStats) {
     const resultsDiv = document.getElementById('packetResults');
     resultsDiv.style.display = 'block';
 
@@ -2008,6 +2066,108 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         html += '</div>';
     } else {
         html += '<p style="color: var(--text-secondary);">No specific apps detected</p>';
+    }
+
+    // Top Talkers
+    const topTalkersByBytes = Object.entries(ipAnalysis)
+        .sort((a, b) => b[1].bytes - a[1].bytes)
+        .slice(0, 10);
+    const topTalkersByPackets = Object.entries(ipAnalysis)
+        .sort((a, b) => b[1].packets - a[1].packets)
+        .slice(0, 10);
+
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top Talkers</h3>';
+    html += '<div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 25px;">';
+    html += '<div style="overflow-x: auto;"><table class="data-table compact-table" style="width: 100%; border-collapse: collapse;">';
+    html += '<thead><tr><th>By Bytes</th><th style="text-align: right;">Bytes</th><th style="text-align: right;">Packets</th></tr></thead><tbody>';
+    topTalkersByBytes.forEach(([ip, data]) => {
+        const ipKey = ip.replace(/:/g, '-');
+        html += `<tr>
+            <td style="padding: 10px;">
+                <div data-whois-name="${ip}" style="font-weight: 600;">${ipWhoisNameCache[ip] || ip}</div>
+                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                <span id="whois-${ipKey}-talker" style="display: none;"></span>
+            </td>
+            <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
+            <td style="padding: 10px; text-align: right;">${data.packets}</td>
+        </tr>`;
+    });
+    html += '</tbody></table></div>';
+    html += '<div style="overflow-x: auto;"><table class="data-table compact-table" style="width: 100%; border-collapse: collapse;">';
+    html += '<thead><tr><th>By Packets</th><th style="text-align: right;">Packets</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
+    topTalkersByPackets.forEach(([ip, data]) => {
+        const ipKey = ip.replace(/:/g, '-');
+        html += `<tr>
+            <td style="padding: 10px;">
+                <div data-whois-name="${ip}" style="font-weight: 600;">${ipWhoisNameCache[ip] || ip}</div>
+                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                <span id="whois-${ipKey}-talker" style="display: none;"></span>
+            </td>
+            <td style="padding: 10px; text-align: right;">${data.packets}</td>
+            <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
+        </tr>`;
+    });
+    html += '</tbody></table></div></div>';
+
+    // Protocol Sessions
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Protocol Sessions</h3>';
+    html += '<p style="color: var(--text-secondary); margin-top: -6px; margin-bottom: 14px; font-size: 0.9rem;">Counts reflect sessions grouped by protocol (Session Protocol or Transport Protocol).</p>';
+    const protocolSessions = Object.entries(serviceStats)
+        .sort((a, b) => b[1] - a[1]);
+    if (protocolSessions.length) {
+        html += '<div style="overflow-x: auto; margin-bottom: 25px;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr><th>Protocol</th><th style="text-align: right;">Sessions</th></tr></thead><tbody>';
+        protocolSessions.forEach(([protocol, count]) => {
+            html += `<tr>
+                <td style="padding: 10px;">${protocol.toUpperCase()}</td>
+                <td style="padding: 10px; text-align: right;">${count}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+    } else {
+        html += '<p style="color: var(--text-secondary); margin-bottom: 25px;">No protocol session data available.</p>';
+    }
+
+    // Domain / Host Insights
+    const domainCount = Object.keys(domainStats).length;
+    const topDestinations = Object.entries(destinationStats || {})
+        .sort((a, b) => b[1].bytes - a[1].bytes)
+        .slice(0, 12)
+        .map(([ip, stats]) => {
+            const name = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
+            const source = reverseDnsCache[ip] ? 'PTR' : (ipWhoisNameCache[ip] ? 'WHOIS' : 'IP');
+            return { ip, name, source, bytes: stats.bytes, packets: stats.packets };
+        });
+
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Domain / Host Insights</h3>';
+    if (domainCount === 0 && topDestinations.length === 0) {
+        html += '<div class="summary-card" style="margin-bottom: 25px;">';
+        html += '<div class="summary-label">No Domain/Host Data</div>';
+        html += '<div style="color: var(--text-secondary); margin-top: 6px; font-size: 0.95rem;">This dataset has no values in Domain, Cached Associate Hostname, or Associate Host Name fields.</div>';
+        html += '</div>';
+    } else {
+        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 25px;">';
+        html += '<div style="overflow-x: auto; grid-column: 1 / -1;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr><th>Top Destinations (PTR/WHOIS)</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
+        if (topDestinations.length) {
+            topDestinations.forEach(item => {
+                html += `<tr>
+                    <td style="padding: 10px;">
+                        <div data-whois-name="${item.ip}" style="font-weight: 600;">${item.name}</div>
+                        <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${item.ip} · ${item.source}</div>
+                    </td>
+                    <td style="padding: 10px; text-align: right;">${item.packets}</td>
+                    <td style="padding: 10px; text-align: right;">${formatBytes(item.bytes)}</td>
+                </tr>`;
+            });
+        } else {
+            html += '<tr><td colspan="3" style="padding: 10px; color: var(--text-secondary);">No destination stats available.</td></tr>';
+        }
+        html += '</tbody></table>';
+        html += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">';
+        html += '<button class="btn-secondary" onclick="resolveReverseDNS()">Resolve PTR for top destinations</button>';
+        html += '<span id="ptrStatus">PTR lookups are often missing; WHOIS is used as fallback.</span>';
+        html += '</div></div></div>';
     }
 
     // Top IPs Section
@@ -2058,48 +2218,12 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
 
     html += '</tbody></table></div>';
 
-    // Port Statistics
-    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Port Usage Statistics</h3>';
-    html += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-    html += '<thead><tr style="background: var(--primary-color); color: white;">';
-    html += '<th style="padding: 12px; text-align: left;">Port</th>';
-    html += '<th style="padding: 12px; text-align: left;">Service</th>';
-    html += '<th style="padding: 12px; text-align: right;">Connections</th>';
-    html += '</tr></thead><tbody>';
-
-    const sortedPorts = Object.entries(portStats)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 30);
-
-    sortedPorts.forEach(([port, count]) => {
-        const service = getPortServiceDisplay(port);
-        html += `
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <td style="padding: 10px; font-weight: 600;">${port}</td>
-                <td style="padding: 10px;">${service}</td>
-                <td style="padding: 10px; text-align: right;">${count}</td>
-            </tr>
-        `;
-    });
-
-    html += '</tbody></table></div>';
-
-    // Protocol Statistics
-    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Protocol Distribution</h3>';
-    html += '<div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">';
-
-    Object.entries(serviceStats).forEach(([protocol, count]) => {
-        html += `
-            <div class="summary-card">
-                <div class="summary-label">${protocol.toUpperCase()}</div>
-                <div class="summary-value">${count}</div>
-            </div>
-        `;
-    });
-
     html += '</div></div>';
 
     resultsDiv.innerHTML = html;
+    if (!reverseDnsStats.attempted) {
+        setTimeout(() => resolveReverseDNS(), 0);
+    }
 
     // Populate target dropdown
     const targetSelect = document.getElementById('packetTargetSelect');
@@ -2295,20 +2419,20 @@ function categorizeApp(app) {
 
 function getCategoryColor(category) {
     const colors = {
-        'Messaging': 'linear-gradient(135deg, #e7edff 0%, #dce5ff 100%)',
-        'Social Media': 'linear-gradient(135deg, #ffe6ef 0%, #ffd9e6 100%)',
-        'System Service': 'linear-gradient(135deg, #e6f7ff 0%, #d8f2ff 100%)',
-        'Push Notifications': 'linear-gradient(135deg, #e6fff4 0%, #d3f9ea 100%)',
-        'Voice/Video Call': 'linear-gradient(135deg, #fff5dc 0%, #ffe9c2 100%)',
-        'Streaming': 'linear-gradient(135deg, #efe9ff 0%, #e0d6ff 100%)',
-        'Banking': 'linear-gradient(135deg, #e7fff0 0%, #d9f6e5 100%)',
-        'Financial': 'linear-gradient(135deg, #fff1dd 0%, #ffe4c4 100%)',
-        'E-Commerce/Cloud': 'linear-gradient(135deg, #fff3e8 0%, #ffe6d3 100%)',
-        'Productivity': 'linear-gradient(135deg, #ffe7f1 0%, #ffd9e9 100%)',
-        'Email': 'linear-gradient(135deg, #e6f1ff 0%, #d9e8ff 100%)',
-        'Transportation': 'linear-gradient(135deg, #e4fff8 0%, #d6f7f0 100%)',
-        'Food Delivery': 'linear-gradient(135deg, #ffe6e2 0%, #ffd6cf 100%)',
-        'Other': 'linear-gradient(135deg, #eef2f7 0%, #e3e9f2 100%)',
+        'Messaging': 'linear-gradient(135deg, #2340c8 0%, #3c6cf1 100%)',
+        'Social Media': 'linear-gradient(135deg, #b12645 0%, #e24f7c 100%)',
+        'System Service': 'linear-gradient(135deg, #0f7a8f 0%, #1fb6c7 100%)',
+        'Push Notifications': 'linear-gradient(135deg, #0e8b5a 0%, #22c48b 100%)',
+        'Voice/Video Call': 'linear-gradient(135deg, #9a4c0f 0%, #d77a1f 100%)',
+        'Streaming': 'linear-gradient(135deg, #4a2aa9 0%, #7450d3 100%)',
+        'Banking': 'linear-gradient(135deg, #0f6b3f 0%, #1aa868 100%)',
+        'Financial': 'linear-gradient(135deg, #8a4f0c 0%, #c47b1a 100%)',
+        'E-Commerce/Cloud': 'linear-gradient(135deg, #7a2a7a 0%, #a74aa7 100%)',
+        'Productivity': 'linear-gradient(135deg, #2a5a9d 0%, #4a88d9 100%)',
+        'Email': 'linear-gradient(135deg, #1f5c8e 0%, #2f7ec2 100%)',
+        'Transportation': 'linear-gradient(135deg, #0c7c6f 0%, #19b7a5 100%)',
+        'Food Delivery': 'linear-gradient(135deg, #9c2c24 0%, #d85a4d 100%)',
+        'Other': 'linear-gradient(135deg, #3f4a5c 0%, #5c6b80 100%)',
     };
     return colors[category] || colors['Other'];
 }
@@ -2318,6 +2442,135 @@ function formatBytes(bytes) {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+function parseDurationToSeconds(duration) {
+    if (!duration) return 0;
+    const parts = String(duration).trim().split(':').map(Number);
+    if (!parts.length || parts.some(n => Number.isNaN(n))) return 0;
+    let h = 0;
+    let m = 0;
+    let s = 0;
+    if (parts.length === 3) {
+        [h, m, s] = parts;
+    } else if (parts.length === 2) {
+        [m, s] = parts;
+    } else if (parts.length === 1) {
+        [s] = parts;
+    } else {
+        return 0;
+    }
+    return Math.max(0, (h * 3600) + (m * 60) + s);
+}
+
+function summarizeDurations(list) {
+    if (!list || list.length === 0) return null;
+    const sorted = [...list].sort((a, b) => a - b);
+    const count = sorted.length;
+    const sum = sorted.reduce((acc, val) => acc + val, 0);
+    const avg = sum / count;
+    const mid = Math.floor(count / 2);
+    const median = count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    const max = sorted[sorted.length - 1];
+    return { count, avg, median, max };
+}
+
+function formatDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '0s';
+    const total = Math.round(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+}
+
+function expandIPv6(address) {
+    if (!address || !address.includes(':')) return null;
+    const [left, right] = address.split('::');
+    const leftParts = left ? left.split(':').filter(Boolean) : [];
+    const rightParts = right ? right.split(':').filter(Boolean) : [];
+    if (leftParts.length + rightParts.length > 8) return null;
+    const fillCount = 8 - (leftParts.length + rightParts.length);
+    const parts = [
+        ...leftParts,
+        ...Array(fillCount).fill('0'),
+        ...rightParts
+    ].map(part => part.padStart(4, '0').toLowerCase());
+    if (parts.length !== 8 || parts.some(p => p.length !== 4)) return null;
+    return parts.join('');
+}
+
+function ipToPtrName(ip) {
+    if (!ip) return null;
+    if (ip.includes('.')) {
+        const octets = ip.split('.');
+        if (octets.length !== 4) return null;
+        return `${octets.reverse().join('.')}.in-addr.arpa`;
+    }
+    const expanded = expandIPv6(ip);
+    if (!expanded) return null;
+    const nibbles = expanded.split('').reverse().join('.');
+    return `${nibbles}.ip6.arpa`;
+}
+
+async function getReverseDnsName(ip) {
+    const ptr = ipToPtrName(ip);
+    if (!ptr) return null;
+    try {
+        const response = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(ptr)}&type=PTR`);
+        if (!response.ok) return null;
+        const data = await response.json();
+        const answer = data && data.Answer && data.Answer.find(a => a && a.data);
+        if (!answer || !answer.data) return null;
+        return answer.data.replace(/\.$/, '');
+    } catch (error) {
+        return null;
+    }
+}
+
+async function resolveReverseDNS() {
+    if (!lastPacketAnalysis || !lastPacketAnalysis.destinationStats) return;
+    reverseDnsStats.attempted = true;
+    const dests = Object.entries(lastPacketAnalysis.destinationStats)
+        .sort((a, b) => b[1].bytes - a[1].bytes)
+        .slice(0, 30)
+        .map(([ip]) => ip)
+        .filter(ip => !reverseDnsCache[ip] && !isPrivateOrReservedIP(ip));
+
+    if (!dests.length) return;
+
+    reverseDnsStats.total = dests.length;
+    reverseDnsStats.found = 0;
+    const statusEl = document.getElementById('ptrStatus');
+    if (statusEl) statusEl.textContent = `Resolving PTR for ${dests.length} destinations...`;
+
+    for (const ip of dests) {
+        const name = await getReverseDnsName(ip);
+        if (name) {
+            reverseDnsCache[ip] = name;
+            reverseDnsStats.found++;
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    if (statusEl) {
+        statusEl.textContent = reverseDnsStats.found
+            ? `PTR found for ${reverseDnsStats.found}/${reverseDnsStats.total} destinations.`
+            : `No PTR records found for top destinations (common). WHOIS is used as fallback.`;
+    }
+
+    displayPacketAnalysis(
+        lastPacketAnalysis.ipAnalysis,
+        lastPacketAnalysis.serviceStats,
+        lastPacketAnalysis.portStats,
+        lastPacketAnalysis.appDetection,
+        lastPacketAnalysis.domainStats,
+        lastPacketAnalysis.hostStats,
+        lastPacketAnalysis.durationStats,
+        lastPacketAnalysis.destinationStats
+    );
 }
 
 function getPacketTargetOptions() {
@@ -2476,8 +2729,12 @@ function formatWhoisName(data, fallbackIp) {
 }
 
 function setWhoisName(ip, name) {
+    const preferred = reverseDnsCache[ip] || name || ip;
     const nameEl = document.getElementById('whois-name-' + ip.replace(/:/g, '-'));
-    if (nameEl) nameEl.textContent = name || ip;
+    if (nameEl) nameEl.textContent = preferred;
+    document.querySelectorAll(`[data-whois-name="${ip}"]`).forEach(el => {
+        el.textContent = preferred;
+    });
 }
 
 function isPrivateOrReservedIP(ip) {
@@ -2612,6 +2869,7 @@ window.lookupWhois = lookupWhois;
 window.performBulkWhois = performBulkWhois;
 window.viewWhoisCache = viewWhoisCache;
 window.closeWhoisCache = closeWhoisCache;
+window.resolveReverseDNS = resolveReverseDNS;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

@@ -1904,10 +1904,9 @@ function getIanaPortDisplay(port) {
     const full = labels.join(', ');
     const maxItems = 4;
     const short = labels.length > maxItems ? `${labels.slice(0, maxItems).join(', ')} +${labels.length - maxItems} more` : full;
-    const escapedFull = full.replace(/\"/g, '&quot;');
-    const descTitle = descs.length ? descs.join(' | ').replace(/\"/g, '&quot;') : '';
-    const infoBadge = descTitle ? ` <span title="${descTitle}" style="display:inline-block; margin-left:4px; width:16px; height:16px; line-height:16px; text-align:center; border-radius:50%; background:rgba(0,0,0,0.08); color:var(--text-secondary); font-size:0.75rem;">?</span>` : '';
-    return `<span title="${escapedFull}">${short}</span>${infoBadge}`;
+    const descText = descs.length ? descs.join(' | ') : '';
+    const descHtml = descText ? `<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">${descText}</div>` : '';
+    return `<div>${short}</div>${descHtml}`;
 }
 
 function detectApp(srcIP, dstIP, srcPort, dstPort, protocol) {

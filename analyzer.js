@@ -1438,7 +1438,7 @@ async function syncTowersFromCloud(options = {}) {
     const towerStatus = document.getElementById('towerStatus');
 
     try {
-        const { needed, neededLacs, neededEcgi } = collectNeededTowerKeys();
+        const { needed = new Set(), neededLacs = new Set(), neededEcgi = new Set() } = collectNeededTowerKeys() || {};
         if (needed.size === 0 && neededLacs.size === 0 && neededEcgi.size === 0) {
             const storageBlocked = !canUseLocalStorage();
             towerStatus.textContent = storageBlocked
@@ -1529,7 +1529,7 @@ function collectNeededTowerKeys() {
     const needed = new Set();
     const neededLacs = new Set();
     const neededEcgi = new Set();
-    if (!currentAnalyzer) return { needed, neededLacs };
+    if (!currentAnalyzer) return { needed, neededLacs, neededEcgi };
     currentAnalyzer.calls.forEach(call => {
         for (const loc of call.locations) {
             let lac = loc.parsed?.lac;
@@ -3024,4 +3024,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi2) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi3) loaded and ready (Supabase Cloud Support).");

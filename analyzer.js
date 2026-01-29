@@ -733,6 +733,27 @@ function analyzeCDC(options = {}) {
                 }
             }
         }
+        if (currentAnalyzer.calls.size > 0) {
+            const preferredId = choosePreferredCallId(currentAnalyzer.calls);
+            const preferredCall = preferredId ? currentAnalyzer.calls.get(preferredId) : currentAnalyzer.calls.values().next().value;
+            if (preferredCall && preferredCall.locations.length === 0) {
+                const signalMatches = input.matchAll(/(?:sigMsg|signalingMsg(?:\[\d+\])?)\s*=\s*([0-9a-fA-F\s]+)/gi);
+                for (const match of signalMatches) {
+                    const decoded = decodePossibleHex(match[1]);
+                    const cellMatch = decoded.match(/utran-cell-id-3gpp=([0-9a-fA-F]+)/i);
+                    if (cellMatch) {
+                        const ecgi = cellMatch[1];
+                        const parsed = currentAnalyzer.parseCellId(ecgi);
+                        preferredCall.locations.push({
+                            type: 'P-A-N-I-Header (Preferred Call Fallback)',
+                            rawData: decoded,
+                            parsed,
+                            timestamp: preferredCall.startTime || currentAnalyzer.messages?.[0]?.timestamp
+                        });
+                    }
+                }
+            }
+        }
 
         const selector = document.getElementById('callSelector');
         selector.innerHTML = '';
@@ -3263,4 +3284,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi11) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi12) loaded and ready (Supabase Cloud Support).");

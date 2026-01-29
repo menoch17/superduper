@@ -1483,16 +1483,17 @@ async function syncTowersFromCloud(options = {}) {
                 .from('towers')
                 .select('*')
                 .in('lac', lacList);
-            data = resp.data;
+            data = resp.data || [];
             error = resp.error;
-        } else if (neededEcgi.size > 0) {
+        }
+        if ((!data || data.length === 0) && neededEcgi.size > 0) {
             const ecgiList = Array.from(neededEcgi);
             towerStatus.textContent = `Syncing ${ecgiList.length} ECGI(s) from cloud...`;
             const resp = await supabaseClient
                 .from('towers')
                 .select('*')
                 .in('ecgi', ecgiList);
-            data = resp.data;
+            data = resp.data || [];
             error = resp.error;
         }
 

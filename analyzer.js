@@ -692,6 +692,24 @@ function analyzeCDC(options = {}) {
                 }
             }
         }
+        if (![...currentAnalyzer.calls.values()].some(call => call.locations.length > 0)) {
+            const firstCall = currentAnalyzer.calls.values().next().value;
+            const signalMatches = input.matchAll(/signalingMsg\s*=\s*([0-9a-fA-F]+)/gi);
+            for (const match of signalMatches) {
+                const decoded = decodePossibleHex(match[1]);
+                const cellMatch = decoded.match(/utran-cell-id-3gpp=([0-9a-fA-F]+)/i);
+                if (cellMatch && firstCall) {
+                    const ecgi = cellMatch[1];
+                    const parsed = currentAnalyzer.parseCellId(ecgi);
+                    firstCall.locations.push({
+                        type: 'P-A-N-I-Header (Hex Fallback)',
+                        rawData: decoded,
+                        parsed,
+                        timestamp: firstCall.startTime || currentAnalyzer.messages?.[0]?.timestamp
+                    });
+                }
+            }
+        }
 
         const selector = document.getElementById('callSelector');
         selector.innerHTML = '';

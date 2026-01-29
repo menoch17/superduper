@@ -571,6 +571,17 @@ function isMostlyPrintable(text) {
     return printable / text.length >= 0.7;
 }
 
+function canUseLocalStorage() {
+    try {
+        const key = '__cdc_storage_test__';
+        localStorage.setItem(key, '1');
+        localStorage.removeItem(key);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
 function normalizeFullCellId(value) {
     if (!value) return null;
     return value.toString().trim().toLowerCase().replace(/[^0-9a-f]/g, '');
@@ -1197,6 +1208,12 @@ function initializeSupabase() {
 async function syncTowersFromCloud(options = {}) {
     const { refreshAfter = false } = options;
     if (!initializeSupabase()) {
+        const towerStatus = document.getElementById('towerStatus');
+        if (towerStatus) {
+            towerStatus.textContent = canUseLocalStorage()
+                ? "Cloud sync unavailable. Check Supabase settings."
+                : "Cloud sync blocked: browser storage disabled. Load CSV locally or allow storage.";
+        }
         console.warn("Supabase not initialized. Cannot sync.");
         return;
     }

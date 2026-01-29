@@ -627,6 +627,17 @@ function isMostlyPrintable(text) {
     return printable / text.length >= 0.7;
 }
 
+function canUseLocalStorage() {
+    try {
+        const key = '__cdc_storage_test__';
+        localStorage.setItem(key, '1');
+        localStorage.removeItem(key);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
 function getDecimalValue(value) {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     if (typeof value === 'string' && value.trim()) {
@@ -1406,7 +1417,10 @@ async function syncTowersFromCloud(options = {}) {
     try {
         const needed = collectNeededTowerKeys();
         if (needed.size === 0) {
-            towerStatus.textContent = "No referenced towers found in logs. Upload CSV for local data or load a log first.";
+            const storageBlocked = !canUseLocalStorage();
+            towerStatus.textContent = storageBlocked
+                ? "Cloud sync skipped: browser storage blocked. Load CSV locally or allow storage."
+                : "No referenced towers found in logs. Upload CSV for local data or load a log first.";
             console.warn("Skipping tower sync: no LAC/CID references detected.");
             return;
         }

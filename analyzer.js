@@ -153,6 +153,11 @@ class CDCAnalyzer {
             case 'directSignalReporting':
             case 'subjectSignal':
                 result.data = this.parseSIPMessage(block);
+                if (!result.callId && result.data?.sipMessages?.length) {
+                    const headers = result.data.sipMessages[0]?.parsed?.headers || {};
+                    const sipCallId = this.getHeaderValue(headers, 'Call-ID');
+                    if (sipCallId) result.callId = sipCallId;
+                }
                 break;
             case 'ccOpen':
             case 'ccClose':
@@ -209,7 +214,7 @@ class CDCAnalyzer {
     }
 
     parseAttemptMessage(block) {
-        const data = { calling: {}, called: {}, sdp: null };
+        const data = { calling: {}, called: {}, sdp: null, location: [] };
         const callingSection = block.match(/calling\s*\n([\s\S]*?)(?=called|$)/i);
         if (callingSection) {
             const uriMatch = callingSection[1].match(/uri\[0\]\s*=\s*(.+)/i);
@@ -248,6 +253,7 @@ class CDCAnalyzer {
             data.sdp = sdpMatch[1].trim();
             data.codecs = this.parseCodecsFromSDP(data.sdp);
         }
+        data.location = this.parseLocationData(block);
         return data;
     }
 
@@ -428,12 +434,14 @@ class CDCAnalyzer {
                 }
                 if (message.data.called) call.calledParty = message.data.called;
                 if (message.data.codecs) call.codecs = message.data.codecs;
+                if (message.data.location && message.data.location.length) call.locations.push(...message.data.location);
                 break;
             case 'origAttempt':
                 call.callDirection = 'Outgoing';
                 call.startTime = message.timestamp;
                 if (message.data.calling) call.callingParty = message.data.calling;
                 if (message.data.called) call.calledParty = message.data.called;
+                if (message.data.location && message.data.location.length) call.locations.push(...message.data.location);
                 break;
             case 'directSignalReporting':
             case 'subjectSignal':

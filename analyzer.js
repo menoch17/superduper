@@ -967,15 +967,22 @@ function normalizeShortCellId(value) {
 
 function buildEcgiVariants(value) {
     const variants = new Set();
+    const raw = value ? value.toString().trim() : '';
+    if (raw) variants.add(raw);
     const normalized = normalizeFullCellId(value);
     if (!normalized) return variants;
     variants.add(normalized);
+    variants.add(normalized.toUpperCase());
     if (/^\d{6}/.test(normalized)) {
         const mccmnc = normalized.slice(0, 6);
         const tail = normalized.slice(6);
         if (tail) {
-            variants.add(`${mccmnc}-${tail}`);
-            variants.add(`${mccmnc}.${tail}`);
+            const dash = `${mccmnc}-${tail}`;
+            const dot = `${mccmnc}.${tail}`;
+            variants.add(dash);
+            variants.add(dot);
+            variants.add(dash.toUpperCase());
+            variants.add(dot.toUpperCase());
         }
     }
     return variants;
@@ -1365,7 +1372,7 @@ function parseTowerCSV(text) {
                 beamWidth: Number.isFinite(beamVal) ? beamVal : null,
                 sectorRadiusMeters: Number.isFinite(radiusVal) ? radiusVal : null,
                 sectorName: nameVal ? nameVal : null,
-                ecgi: ecgiVal || null
+                ecgi: ecgiVal ? ecgiVal.toLowerCase() : null
             });
             const stored = towerDatabase.get(key);
             const fullIdKey = normalizeFullCellId(ecgiVal);

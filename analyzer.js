@@ -2722,6 +2722,28 @@ async function getReverseDnsName(ip) {
     }
 }
 
+async function loadReverseDnsCacheFromDb(ips) {
+    if (!ips || ips.length === 0) return 0;
+    if (!supabaseClient) initializeSupabase();
+    if (!supabaseClient) return 0;
+    try {
+        const { data, error } = await supabaseClient
+            .from('ip_ptr')
+            .select('ip_address,ptr_name')
+            .in('ip_address', ips);
+        if (error || !data) return 0;
+        data.forEach(record => {
+            if (record.ptr_name) {
+                reverseDnsCache[record.ip_address] = record.ptr_name;
+            }
+        });
+        return data.length;
+    } catch (e) {
+        console.error("PTR cache lookup failed:", e);
+        return 0;
+    }
+}
+
 async function resolveReverseDNS() {
     if (!lastPacketAnalysis || !lastPacketAnalysis.destinationStats) return;
     reverseDnsStats.attempted = true;
@@ -2738,18 +2760,39 @@ async function resolveReverseDNS() {
     const statusEl = document.getElementById('ptrStatus');
     if (statusEl) statusEl.textContent = `Resolving PTR for ${dests.length} destinations...`;
 
-    for (const ip of dests) {
+    const cachedCount = await loadReverseDnsCacheFromDb(dests);
+    const remaining = dests.filter(ip => !reverseDnsCache[ip]);
+    if (cachedCount && statusEl) {
+        statusEl.textContent = `PTR cache hit for ${cachedCount}. Resolving ${remaining.length} remaining...`;
+    }
+
+    for (const ip of remaining) {
         const name = await getReverseDnsName(ip);
         if (name) {
             reverseDnsCache[ip] = name;
             reverseDnsStats.found++;
+            if (!supabaseClient) initializeSupabase();
+            if (supabaseClient) {
+                try {
+                    await supabaseClient
+                        .from('ip_ptr')
+                        .upsert({
+                            ip_address: ip,
+                            ptr_name: name,
+                            lookup_date: new Date().toISOString()
+                        }, { onConflict: 'ip_address' });
+                } catch (e) {
+                    console.error("PTR cache upsert failed:", e);
+                }
+            }
         }
         await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     if (statusEl) {
-        statusEl.textContent = reverseDnsStats.found
-            ? `PTR found for ${reverseDnsStats.found}/${reverseDnsStats.total} destinations.`
+        const resolved = reverseDnsStats.found + (cachedCount || 0);
+        statusEl.textContent = resolved
+            ? `PTR found for ${resolved}/${reverseDnsStats.total} destinations.`
             : `No PTR records found for top destinations (common). WHOIS is used as fallback.`;
     }
 

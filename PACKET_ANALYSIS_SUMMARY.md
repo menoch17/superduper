@@ -2,7 +2,7 @@
 
 ## ✅ Implementation Complete
 
-I've successfully added a comprehensive Packet Analysis tab to your application with database-backed WHOIS caching.
+I've successfully added a comprehensive Packet Analysis tab to your application with database-backed WHOIS and PTR (reverse DNS) caching.
 
 ## 📋 What Was Added
 
@@ -10,6 +10,7 @@ I've successfully added a comprehensive Packet Analysis tab to your application 
 - Clean UI for uploading pen register CSV files
 - Automatic detection of messaging apps, banking apps, and services
 - WHOIS lookups with Supabase database caching
+- PTR (reverse DNS) lookups with Supabase database caching
 - Port and protocol analysis
 
 ### 2. Service Detection (60+ Services)
@@ -45,7 +46,7 @@ I've successfully added a comprehensive Packet Analysis tab to your application 
 - DoorDash, Instacart
 - Amazon, Microsoft, Google services
 
-### 3. WHOIS Database Integration
+### 3. WHOIS + PTR Database Integration
 
 **Smart Caching System:**
 1. First checks Supabase database for previously looked-up IPs
@@ -53,6 +54,7 @@ I've successfully added a comprehensive Packet Analysis tab to your application 
 3. Only performs API lookup for new IPs
 4. Automatically stores results for future use
 5. Bulk lookup optimized: fetches all cached IPs at once
+6. PTR lookups are cached to avoid repeated DNS queries
 
 **Benefits:**
 - Saves API quota (1000 free requests/day limit)
@@ -92,7 +94,8 @@ I've successfully added a comprehensive Packet Analysis tab to your application 
 3. **style.css** - Added data table styles
 
 ### New Files:
-1. **setup_whois_table.sql** - Database table creation script
+1. **setup_whois_table.sql** - WHOIS cache table creation script
+2. **setup_ptr_table.sql** - PTR cache table creation script
 2. **PACKET_ANALYSIS_SETUP.md** - Detailed setup instructions
 3. **EXAMPLE_OUTPUT.md** - Expected results from your data.csv
 4. **PACKET_ANALYSIS_SUMMARY.md** - This file
@@ -107,7 +110,8 @@ I've successfully added a comprehensive Packet Analysis tab to your application 
 
 4. Open Supabase SQL Editor
 5. Run the SQL from `setup_whois_table.sql`
-6. Verify table `ip_whois` is created
+6. Run the SQL from `setup_ptr_table.sql`
+7. Verify tables `ip_whois` and `ip_ptr` are created
 
 ### Step 2: Analyze Your Data
 
@@ -116,12 +120,15 @@ I've successfully added a comprehensive Packet Analysis tab to your application 
 3. Select `data.csv` (2,743 records ready!)
 4. View automatic analysis results
 
-### Step 3: WHOIS Lookups
+### Step 3: WHOIS + PTR Lookups
 
 **Option A - Bulk Lookup (Recommended First Time):**
 - Click "Run WHOIS on All IPs"
 - Wait for completion (shows progress)
 - All future lookups will be instant from database
+
+**PTR Lookups:**
+- Click "Resolve PTR" to cache reverse DNS names
 
 **Option B - Individual Lookups:**
 - Click "Lookup" next to any IP

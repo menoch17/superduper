@@ -66,6 +66,24 @@ ip_whois (
 )
 ```
 
+### Step 2b: Create the PTR Cache Table
+
+1. In Supabase SQL Editor, create a new query
+2. Copy and paste the contents of `setup_ptr_table.sql`
+3. Click **Run**
+
+The table structure:
+```sql
+ip_ptr (
+    id BIGSERIAL PRIMARY KEY,
+    ip_address TEXT UNIQUE NOT NULL,
+    ptr_name TEXT,
+    lookup_date TIMESTAMPTZ,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+)
+```
+
 ### Step 3: Verify Setup
 
 1. Go back to your app

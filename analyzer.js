@@ -1005,6 +1005,10 @@ function deriveTacFromEcgi(ecgi) {
     return Math.floor(numeric / 256).toString();
 }
 
+function normalizeEcgiForCloud(value) {
+    return normalizeFullCellId(value);
+}
+
 function generateFlowMarkup(call, analyzer, baseTimestamp) {
     let markup = "";
     call.messages.forEach(msg => {
@@ -1372,7 +1376,8 @@ function parseTowerCSV(text) {
                 beamWidth: Number.isFinite(beamVal) ? beamVal : null,
                 sectorRadiusMeters: Number.isFinite(radiusVal) ? radiusVal : null,
                 sectorName: nameVal ? nameVal : null,
-                ecgi: ecgiVal ? ecgiVal.toLowerCase() : null
+                ecgi: ecgiVal ? ecgiVal.toLowerCase() : null,
+                ecgi_norm: normalizeEcgiForCloud(ecgiVal)
             });
             const stored = towerDatabase.get(key);
             const fullIdKey = normalizeFullCellId(ecgiVal);
@@ -1488,12 +1493,13 @@ async function syncTowersFromCloud(options = {}) {
         }
         if ((!data || data.length === 0) && neededEcgi.size > 0) {
             const ecgiList = Array.from(neededEcgi);
+            const normList = ecgiList.map(val => normalizeEcgiForCloud(val)).filter(Boolean);
             towerStatus.textContent = `Syncing ${ecgiList.length} ECGI(s) from cloud...`;
             console.log("ECGI lookup list (first 10):", ecgiList.slice(0, 10));
             const resp = await supabaseClient
                 .from('towers')
                 .select('*')
-                .in('ecgi', ecgiList);
+                .in('ecgi_norm', Array.from(new Set(normList)));
             data = resp.data || [];
             error = resp.error;
         }
@@ -1632,6 +1638,7 @@ async function uploadTowersToCloud() {
                 lac,
                 cid,
                 ecgi: val.ecgi || `${lac}-${cid}`,
+                ecgi_norm: normalizeEcgiForCloud(val.ecgi || `${lac}-${cid}`),
                 lat: val.lat,
                 lon: val.lon,
                 address: val.address,
@@ -3069,4 +3076,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi4) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi5) loaded and ready (Supabase Cloud Support).");

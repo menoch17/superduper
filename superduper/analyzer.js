@@ -638,6 +638,10 @@ function deriveTacFromEcgi(ecgi) {
     return Math.floor(numeric / 256).toString();
 }
 
+function normalizeEcgiForCloud(value) {
+    return normalizeFullCellId(value);
+}
+
 // Global state for multi-call UI and tower data
 let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
@@ -1177,7 +1181,8 @@ function parseTowerCSV(text) {
                 address: address || 'No address provided',
                 market: colIdx.market !== -1 ? row[colIdx.market] : null,
                 siteId: colIdx.siteId !== -1 ? row[colIdx.siteId] : null,
-                ecgi: ecgiVal ? ecgiVal.toLowerCase() : null
+                ecgi: ecgiVal ? ecgiVal.toLowerCase() : null,
+                ecgi_norm: normalizeEcgiForCloud(ecgiVal)
             });
             const stored = towerDatabase.get(key);
             const fullIdKey = normalizeFullCellId(ecgiVal);
@@ -1361,6 +1366,7 @@ async function uploadTowersToCloud() {
                 lac,
                 cid,
                 ecgi: val.ecgi || `${lac}-${cid}`,
+                ecgi_norm: normalizeEcgiForCloud(val.ecgi || `${lac}-${cid}`),
                 lat: val.lat,
                 lon: val.lon,
                 address: val.address,
@@ -1475,4 +1481,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi4) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi5) loaded and ready (Supabase Cloud Support).");

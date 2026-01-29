@@ -372,9 +372,15 @@ class CDCAnalyzer {
 
     parseLocationData(block) {
         const locations = [];
-        const locationMatches = block.matchAll(/location\[\d+\]\s*\n\s*locationType\s*=\s*(.+)\n\s*locationData\s*=\s*(.+)/gi);
-        for (const match of locationMatches) {
-            const locationData = { type: match[1].trim(), rawData: match[2].trim(), parsed: {} };
+        const locationBlocks = block.matchAll(
+            /location\[\d+\][\s\S]*?(?=\n\s*location\[\d+\]|\n\s*(?:subjectMedia|associateMedia|calling|called|input|originationCause|signalingMsg|answering|cause|contactAddresses|$))/gi
+        );
+        for (const match of locationBlocks) {
+            const chunk = match[0];
+            const typeMatch = chunk.match(/locationType\s*=\s*(.+)/i);
+            const dataMatch = chunk.match(/locationData\s*=\s*(.+)/i);
+            if (!typeMatch || !dataMatch) continue;
+            const locationData = { type: typeMatch[1].trim(), rawData: dataMatch[1].trim(), parsed: {} };
             // Support both decimal and hex cell IDs
             const cellMatch = locationData.rawData.match(/utran-cell-id-3gpp=([a-fA-F0-9]+)/i);
             if (cellMatch) {

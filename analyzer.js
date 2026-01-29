@@ -1767,7 +1767,7 @@ let ipWhoisNameCache = {};
 let packetTargetFilter = 'All';
 let reverseDnsCache = {};
 let lastPacketAnalysis = null;
-let reverseDnsStats = { attempted: false, found: 0, total: 0 };
+let reverseDnsStats = { attempted: false, found: 0, total: 0, cached: 0, lookupErrors: 0, upsertErrors: 0 };
 
 // Known IP ranges for common services
 const IP_RANGES = {
@@ -2322,8 +2322,9 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         .sort((a, b) => b[1].bytes - a[1].bytes)
         .slice(0, 12)
         .map(([ip, stats]) => {
-            const name = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
-            const source = reverseDnsCache[ip] ? 'PTR' : (ipWhoisNameCache[ip] ? 'WHOIS' : 'IP');
+            const cacheKey = normalizeIpForCache(ip);
+            const name = reverseDnsCache[ip] || ipWhoisNameCache[cacheKey] || ip;
+            const source = reverseDnsCache[ip] ? 'PTR' : (ipWhoisNameCache[cacheKey] ? 'WHOIS' : 'IP');
             return { ip, name, source, bytes: stats.bytes, packets: stats.packets };
         });
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top Destinations (PTR/WHOIS)</h3>';
@@ -2675,12 +2676,17 @@ function getTimelineBucketKey(value) {
     });
 }
 
+function normalizeIpForCache(ip) {
+    return String(ip || '').trim().toLowerCase();
+}
+
 function getIpDisplayMeta(ip) {
     if (reverseDnsCache[ip]) {
         return { name: reverseDnsCache[ip], source: 'PTR' };
     }
-    if (ipWhoisNameCache[ip]) {
-        return { name: ipWhoisNameCache[ip], source: 'WHOIS' };
+    const cacheKey = normalizeIpForCache(ip);
+    if (ipWhoisNameCache[cacheKey]) {
+        return { name: ipWhoisNameCache[cacheKey], source: 'WHOIS' };
     }
     return { name: ip, source: 'IP' };
 }
@@ -2783,14 +2789,21 @@ async function resolveReverseDNS() {
         .map(([ip]) => ip)
         .filter(ip => !reverseDnsCache[ip] && !isPrivateOrReservedIP(ip));
 
-    if (!dests.length) return;
+    const statusEl = document.getElementById('ptrStatus');
+    if (!dests.length) {
+        if (statusEl) statusEl.textContent = 'No destinations to resolve for PTR.';
+        return;
+    }
 
     reverseDnsStats.total = dests.length;
     reverseDnsStats.found = 0;
-    const statusEl = document.getElementById('ptrStatus');
+    reverseDnsStats.cached = 0;
+    reverseDnsStats.lookupErrors = 0;
+    reverseDnsStats.upsertErrors = 0;
     if (statusEl) statusEl.textContent = `Resolving PTR for ${dests.length} destinations...`;
 
     const cachedCount = await loadReverseDnsCacheFromDb(dests);
+    reverseDnsStats.cached = cachedCount || 0;
     const remaining = dests.filter(ip => !reverseDnsCache[ip]);
     if (cachedCount && statusEl) {
         statusEl.textContent = `PTR cache hit for ${cachedCount}. Resolving ${remaining.length} remaining...`;
@@ -2812,18 +2825,22 @@ async function resolveReverseDNS() {
                             lookup_date: new Date().toISOString()
                         }, { onConflict: 'ip_address' });
                 } catch (e) {
-                    console.error("PTR cache upsert failed:", e);
+                    reverseDnsStats.upsertErrors++;
+                    console.error("PTR cache upsert failed:", ip, e);
                 }
             }
+        } else {
+            reverseDnsStats.lookupErrors++;
         }
         await new Promise(resolve => setTimeout(resolve, 200));
     }
 
     if (statusEl) {
-        const resolved = reverseDnsStats.found + (cachedCount || 0);
+        const resolved = reverseDnsStats.found + reverseDnsStats.cached;
+        const errorTotal = reverseDnsStats.lookupErrors + reverseDnsStats.upsertErrors;
         statusEl.textContent = resolved
-            ? `PTR found for ${resolved}/${reverseDnsStats.total} destinations.`
-            : `No PTR records found for top destinations (common). WHOIS is used as fallback.`;
+            ? `PTR: cached ${reverseDnsStats.cached}, resolved ${reverseDnsStats.found}, errors ${errorTotal}.`
+            : `No PTR records found for top destinations (common). WHOIS is used as fallback. Errors: ${errorTotal}.`;
     }
 
     displayPacketAnalysis(
@@ -2862,24 +2879,28 @@ function refreshPacketTargetSelect() {
 async function lookupWhois(ip) {
     const displayId = 'whois-' + ip.replace(/:/g, '-');
     const displayEl = document.getElementById(displayId);
+    const cacheKey = normalizeIpForCache(ip);
     let delayMs = 1500;
 
     if (!supabaseClient) initializeSupabase();
 
     if (isPrivateOrReservedIP(ip)) {
-        displayEl.innerHTML = '<span style="color: var(--text-secondary);">Private/Reserved</span>';
+        const privateLabel = '<span style="color: var(--text-secondary);">Private/Reserved</span>';
+        ipWhoisCache[cacheKey] = privateLabel;
+        ipWhoisNameCache[cacheKey] = 'Private/Reserved';
+        if (displayEl) displayEl.innerHTML = privateLabel;
         setWhoisName(ip, 'Private/Reserved');
         return;
     }
 
     // Check in-memory cache first
-    if (ipWhoisCache[ip]) {
-        displayEl.innerHTML = ipWhoisCache[ip];
-        setWhoisName(ip, ipWhoisNameCache[ip] || ip);
+    if (ipWhoisCache[cacheKey]) {
+        if (displayEl) displayEl.innerHTML = ipWhoisCache[cacheKey];
+        setWhoisName(ip, ipWhoisNameCache[cacheKey] || ip);
         return;
     }
 
-    displayEl.innerHTML = '<span style="color: var(--info-color);">Loading...</span>';
+    if (displayEl) displayEl.innerHTML = '<span style="color: var(--info-color);">Loading...</span>';
 
     try {
         // Step 1: Check database first
@@ -2887,16 +2908,18 @@ async function lookupWhois(ip) {
             const { data: dbData, error: dbError } = await supabaseClient
                 .from('ip_whois')
                 .select('*')
-                .eq('ip_address', ip)
+                .eq('ip_address', cacheKey)
                 .single();
 
             if (!dbError && dbData) {
                 // Found in database - use cached data
                 const info = formatWhoisInfo(dbData);
-                ipWhoisCache[ip] = info;
-                ipWhoisNameCache[ip] = formatWhoisName(dbData, ip);
-                displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
-                setWhoisName(ip, ipWhoisNameCache[ip]);
+                ipWhoisCache[cacheKey] = info;
+                ipWhoisNameCache[cacheKey] = formatWhoisName(dbData, ip);
+                if (displayEl) {
+                    displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
+                }
+                setWhoisName(ip, ipWhoisNameCache[cacheKey]);
                 return;
             }
         }
@@ -2915,10 +2938,10 @@ async function lookupWhois(ip) {
             const orgName = whoisData.organization || whoisData.asn || 'Unknown';
             // Step 3: Store in database for future use
             if (supabaseClient) {
-                await supabaseClient
+                const { error: upsertError } = await supabaseClient
                     .from('ip_whois')
                     .upsert({
-                        ip_address: ip,
+                        ip_address: cacheKey,
                         organization: orgName,
                         country: whoisData.country || '',
                         city: whoisData.city || '',
@@ -2929,6 +2952,9 @@ async function lookupWhois(ip) {
                     }, {
                         onConflict: 'ip_address'
                     });
+                if (upsertError) {
+                    console.warn('WHOIS cache upsert failed:', ip, upsertError);
+                }
             }
 
             const info = formatWhoisInfo({
@@ -2936,18 +2962,18 @@ async function lookupWhois(ip) {
                 country: whoisData.country || '',
                 city: whoisData.city || ''
             });
-            ipWhoisCache[ip] = info;
-            ipWhoisNameCache[ip] = orgName || ip;
-            displayEl.innerHTML = info;
-            setWhoisName(ip, ipWhoisNameCache[ip]);
+            ipWhoisCache[cacheKey] = info;
+            ipWhoisNameCache[cacheKey] = orgName || ip;
+            if (displayEl) displayEl.innerHTML = info;
+            setWhoisName(ip, ipWhoisNameCache[cacheKey]);
         } else {
-            displayEl.innerHTML = '<span style="color: var(--text-secondary);">Unavailable</span>';
+            if (displayEl) displayEl.innerHTML = '<span style="color: var(--text-secondary);">Unavailable</span>';
             setWhoisName(ip, ip);
         }
     } catch (error) {
         console.error('WHOIS lookup error:', error);
         const msg = error.message && error.message.includes('429') ? 'Rate limited' : 'Unavailable';
-        displayEl.innerHTML = `<span style="color: var(--text-secondary);">${msg}</span>`;
+        if (displayEl) displayEl.innerHTML = `<span style="color: var(--text-secondary);">${msg}</span>`;
         setWhoisName(ip, ip);
     }
 
@@ -3001,7 +3027,8 @@ function formatWhoisName(data, fallbackIp) {
 }
 
 function setWhoisName(ip, name) {
-    const preferred = reverseDnsCache[ip] || name || ip;
+    const cacheKey = normalizeIpForCache(ip);
+    const preferred = reverseDnsCache[ip] || ipWhoisNameCache[cacheKey] || name || ip;
     const nameEl = document.getElementById('whois-name-' + ip.replace(/:/g, '-'));
     if (nameEl) nameEl.textContent = preferred;
     document.querySelectorAll(`[data-whois-name="${ip}"]`).forEach(el => {
@@ -3043,26 +3070,37 @@ async function performBulkWhois() {
     // Get all IP elements that need lookup
     const ipElements = document.querySelectorAll('span[id^="whois-"]');
     const ipsToLookup = Array.from(ipElements).map(el => {
-        const ip = el.id.replace('whois-', '').replace(/-/g, ':');
-        return { ip, element: el };
-    });
+        let id = el.id.replace(/^whois-/, '');
+        if (id.endsWith('-talker')) {
+            id = id.slice(0, -'-talker'.length);
+        }
+        const ip = id.replace(/-/g, ':');
+        return { ip, cacheKey: normalizeIpForCache(ip), element: el };
+    }).filter(item => item.ip && item.cacheKey);
 
     if (ipsToLookup.length === 0) {
         progressEl.textContent = 'No IPs to lookup';
         return;
     }
 
-    const total = ipsToLookup.length;
+    const ipMap = new Map();
+    ipsToLookup.forEach(item => {
+        if (!ipMap.has(item.cacheKey)) ipMap.set(item.cacheKey, []);
+        ipMap.get(item.cacheKey).push(item);
+    });
+
+    const total = ipMap.size;
     progressEl.innerHTML = `<span style="color: var(--info-color);">Looking up ${total} IPs...</span>`;
 
     // Step 1: Bulk check database for all IPs
     let dbHits = 0;
     let apiCalls = 0;
+    let skipped = 0;
 
     if (!supabaseClient) initializeSupabase();
     if (supabaseClient) {
         try {
-            const ipAddresses = ipsToLookup.slice(0, total).map(item => item.ip);
+            const ipAddresses = Array.from(ipMap.keys());
             const { data: dbData, error: dbError } = await supabaseClient
                 .from('ip_whois')
                 .select('*')
@@ -3071,20 +3109,23 @@ async function performBulkWhois() {
             if (!dbError && dbData) {
                 // Display all database hits immediately
                 dbData.forEach(record => {
-                    const displayId = 'whois-' + record.ip_address.replace(/:/g, '-');
-                    const displayEl = document.getElementById(displayId);
-                    if (displayEl) {
-                        const info = formatWhoisInfo({
-                            organization: record.organization,
-                            country: record.country,
-                            city: record.city
-                        });
-                        ipWhoisCache[record.ip_address] = info;
-                        ipWhoisNameCache[record.ip_address] = formatWhoisName(record, record.ip_address);
-                        displayEl.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
-                        setWhoisName(record.ip_address, ipWhoisNameCache[record.ip_address]);
-                        dbHits++;
-                    }
+                    const cacheKey = normalizeIpForCache(record.ip_address);
+                    const items = ipMap.get(cacheKey);
+                    if (!items || items.length === 0) return;
+                    const info = formatWhoisInfo({
+                        organization: record.organization,
+                        country: record.country,
+                        city: record.city
+                    });
+                    ipWhoisCache[cacheKey] = info;
+                    ipWhoisNameCache[cacheKey] = formatWhoisName(record, items[0].ip);
+                    items.forEach(item => {
+                        if (item.element) {
+                            item.element.innerHTML = info + ' <span style="color: var(--success-color); font-size: 0.75rem;">(cached)</span>';
+                        }
+                        setWhoisName(item.ip, ipWhoisNameCache[cacheKey]);
+                    });
+                    dbHits++;
                 });
 
                 progressEl.innerHTML = `<span style="color: var(--success-color);">Found ${dbHits} in cache, looking up remaining...</span>`;
@@ -3095,20 +3136,37 @@ async function performBulkWhois() {
     }
 
     // Step 2: API lookup for IPs not in database
-    for (let i = 0; i < total; i++) {
-        const { ip, element } = ipsToLookup[i];
+    for (const [cacheKey, items] of ipMap.entries()) {
+        const targetIp = items[0].ip;
 
         // Skip if already loaded from database
-        if (ipWhoisCache[ip]) {
+        if (ipWhoisCache[cacheKey]) {
             continue;
         }
 
-        await lookupWhois(ip);
+        if (isPrivateOrReservedIP(targetIp)) {
+            const privateLabel = '<span style="color: var(--text-secondary);">Private/Reserved</span>';
+            ipWhoisCache[cacheKey] = privateLabel;
+            ipWhoisNameCache[cacheKey] = 'Private/Reserved';
+            items.forEach(item => {
+                if (item.element) item.element.innerHTML = privateLabel;
+                setWhoisName(item.ip, 'Private/Reserved');
+            });
+            skipped++;
+            progressEl.innerHTML = `<span style="color: var(--info-color);">Progress: ${dbHits + apiCalls + skipped}/${total} (${dbHits} cached, ${apiCalls} new, ${skipped} private)</span>`;
+            continue;
+        }
+
+        await lookupWhois(targetIp);
+        const resolvedName = ipWhoisNameCache[cacheKey] || targetIp;
+        items.forEach(item => setWhoisName(item.ip, resolvedName));
         apiCalls++;
-        progressEl.innerHTML = `<span style="color: var(--info-color);">Progress: ${dbHits + apiCalls}/${total} (${dbHits} cached, ${apiCalls} new)</span>`;
+        const privateSuffix = skipped ? `, ${skipped} private` : '';
+        progressEl.innerHTML = `<span style="color: var(--info-color);">Progress: ${dbHits + apiCalls + skipped}/${total} (${dbHits} cached, ${apiCalls} new${privateSuffix})</span>`;
     }
 
-    progressEl.innerHTML = `<span style="color: var(--success-color);">Complete! ${dbHits} from cache, ${apiCalls} new lookups</span>`;
+    const privateSuffix = skipped ? `, ${skipped} private` : '';
+    progressEl.innerHTML = `<span style="color: var(--success-color);">Complete! ${dbHits} from cache, ${apiCalls} new lookups${privateSuffix}</span>`;
     setTimeout(() => {
         progressEl.textContent = '';
     }, 5000);

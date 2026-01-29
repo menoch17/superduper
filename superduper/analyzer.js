@@ -1360,7 +1360,7 @@ async function uploadTowersToCloud() {
             allRows.push({
                 lac,
                 cid,
-                ecgi: val.ecgi || null,
+                ecgi: val.ecgi || `${lac}-${cid}`,
                 lat: val.lat,
                 lon: val.lon,
                 address: val.address,

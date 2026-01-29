@@ -3015,7 +3015,7 @@ async function performBulkWhois() {
         return;
     }
 
-    const total = Math.min(ipsToLookup.length, 50); // Limit to 50 IPs
+    const total = ipsToLookup.length;
     progressEl.innerHTML = `<span style="color: var(--info-color);">Looking up ${total} IPs...</span>`;
 
     // Step 1: Bulk check database for all IPs

@@ -139,6 +139,11 @@ class CDCAnalyzer {
             case 'directSignalReporting':
             case 'subjectSignal':
                 result.data = this.parseSIPMessage(block);
+                if (!result.callId && result.data?.sipMessages?.length) {
+                    const headers = result.data.sipMessages[0]?.parsed?.headers || {};
+                    const sipCallId = this.getHeaderValue(headers, 'Call-ID');
+                    if (sipCallId) result.callId = sipCallId;
+                }
                 break;
             case 'ccOpen':
             case 'ccClose':
@@ -172,7 +177,7 @@ class CDCAnalyzer {
     }
 
     parseAttemptMessage(block) {
-        const data = { calling: {}, called: {}, sdp: null };
+        const data = { calling: {}, called: {}, sdp: null, location: [] };
         const callingSection = block.match(/calling\s*\n([\s\S]*?)(?=called|$)/i);
         if (callingSection) {
             const uriMatch = callingSection[1].match(/uri\[0\]\s*=\s*(.+)/i);
@@ -203,6 +208,7 @@ class CDCAnalyzer {
             data.sdp = sdpMatch[1].trim();
             data.codecs = this.parseCodecsFromSDP(data.sdp);
         }
+        data.location = this.parseLocationData(block);
         return data;
     }
 
@@ -300,25 +306,22 @@ class CDCAnalyzer {
 
     parseLocationData(block) {
         const locations = [];
-        // More robust regex to handle indented IMS locations
-        const locationMatches = block.matchAll(/location\[(\d+)\]\s*\n\s*locationType\s*=\s*(.+)\n\s*locationData\s*=\s*(.+)/gi);
-
-        for (const match of locationMatches) {
-            const locIndex = match[1];
-            const locType = match[2].trim();
-            const locData = match[3].trim();
-
-            const locationData = { index: locIndex, type: locType, rawData: locData, parsed: {} };
-
-            // Support both decimal and hex cell IDs (utran or cell-id)
-            const cellMatch = locData.match(/(?:utran-cell-id-3gpp|cell-id-3gpp)=([a-fA-F0-9]+)/i);
+        const locationBlocks = block.matchAll(
+            /location\[\d+\][\s\S]*?(?=\n\s*location\[\d+\]|\n\s*(?:subjectMedia|associateMedia|calling|called|input|originationCause|signalingMsg|answering|cause|contactAddresses|$))/gi
+        );
+        for (const match of locationBlocks) {
+            const chunk = match[0];
+            const typeMatch = chunk.match(/locationType\s*=\s*(.+)/i);
+            const dataMatch = chunk.match(/locationData\s*=\s*(.+)/i);
+            if (!typeMatch || !dataMatch) continue;
+            const locationData = { type: typeMatch[1].trim(), rawData: dataMatch[1].trim(), parsed: {} };
+            const cellMatch = locationData.rawData.match(/(?:utran-cell-id-3gpp|cell-id-3gpp)=([a-fA-F0-9]+)/i);
             if (cellMatch) {
                 locationData.parsed = this.parseCellId(cellMatch[1]);
             }
             locations.push(locationData);
         }
 
-        // Fallback for cases where location data might be structured differently
         if (locations.length === 0) {
             const fallbackMatch = block.match(/utran-cell-id-3gpp=([a-fA-F0-9]+)/i);
             if (fallbackMatch) {
@@ -381,12 +384,14 @@ class CDCAnalyzer {
                 }
                 if (message.data.called) call.calledParty = message.data.called;
                 if (message.data.codecs) call.codecs = message.data.codecs;
+                if (message.data.location && message.data.location.length) call.locations.push(...message.data.location);
                 break;
             case 'origAttempt':
                 call.callDirection = 'Outgoing';
                 call.startTime = message.timestamp;
                 if (message.data.calling) call.callingParty = message.data.calling;
                 if (message.data.called) call.calledParty = message.data.called;
+                if (message.data.location && message.data.location.length) call.locations.push(...message.data.location);
                 break;
             case 'directSignalReporting':
             case 'subjectSignal':
@@ -566,9 +571,38 @@ function isMostlyPrintable(text) {
     return printable / text.length >= 0.7;
 }
 
+function normalizeFullCellId(value) {
+    if (!value) return null;
+    return value.toString().trim().toLowerCase().replace(/[^0-9a-f]/g, '');
+}
+
+function normalizeShortCellId(value) {
+    const normalized = normalizeFullCellId(value);
+    if (!normalized) return null;
+    if (!/^\d{6}/.test(normalized)) return null;
+    const mccmnc = normalized.slice(0, 6);
+    const rest = normalized.slice(6);
+    if (rest.length === 7) return normalized;
+    if (rest.length >= 11) return mccmnc + rest.slice(-7);
+    return null;
+}
+
+function deriveTacFromEcgi(ecgi) {
+    if (!ecgi) return null;
+    const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
+    const parts = cleaned.split(/[-:]/).filter(Boolean);
+    const hexPart = parts.length > 1 ? parts[1] : parts[0];
+    if (!hexPart) return null;
+    const numeric = parseInt(hexPart, 16);
+    if (Number.isNaN(numeric)) return null;
+    return Math.floor(numeric / 256).toString();
+}
+
 // Global state for multi-call UI and tower data
 let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId }
+let towerDatabaseFullId = new Map(); // Key: normalized full cell IDs (ECGI, UTRAN)
+let towerDatabaseShortId = new Map(); // Key: normalized short cell IDs (MCCMNC + ECI)
 let supabaseClient = null;
 
 // Hardcoded Supabase Configuration
@@ -706,7 +740,12 @@ function displayResults(call, analyzer) {
                 <div id="map" style="height: 400px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;"></div>
                 <div class="location-grid">
                     ${call.locations.map(loc => {
-            const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+            const compositeKey = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+            const fullKey = normalizeFullCellId(loc.parsed.fullCellId);
+            const shortKey = normalizeShortCellId(loc.parsed.fullCellId);
+            let tower = towerDatabase.get(compositeKey);
+            if (!tower && fullKey) tower = towerDatabaseFullId.get(fullKey);
+            if (!tower && shortKey) tower = towerDatabaseShortId.get(shortKey);
             return `
                         <div class="location-item" style="${tower ? 'border-left: 5px solid var(--success-color);' : ''}">
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -860,7 +899,12 @@ function initMap(locations) {
         locations.forEach(loc => {
             if (!loc.parsed.lac || !loc.parsed.cellId) return;
 
-            const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+            const compositeKey = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+            const fullKey = normalizeFullCellId(loc.parsed.fullCellId);
+            const shortKey = normalizeShortCellId(loc.parsed.fullCellId);
+            let tower = towerDatabase.get(compositeKey);
+            if (!tower && fullKey) tower = towerDatabaseFullId.get(fullKey);
+            if (!tower && shortKey) tower = towerDatabaseShortId.get(shortKey);
             let lat, lng, isPrecise = false;
 
             if (tower && tower.lat && tower.lon) {
@@ -1014,6 +1058,8 @@ function parseTowerCSV(text) {
     const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
     console.log(`Parsing CSV with delimiter "${delimiter}". Headers:`, headers);
 
+    const findHeaderIndex = (keywords) => headers.findIndex(h => keywords.some(keyword => h.includes(keyword)));
+
     const colIdx = {
         lac: headers.findIndex(h => h === 'lac' || h.includes('location area') || h === 'tac' || h === 'tracking area code'),
         cid: -1,
@@ -1022,7 +1068,8 @@ function parseTowerCSV(text) {
         lon: headers.findIndex(h => h === 'lon' || h.includes('longitude') || h === 'x' || h === 'site_longitude' || h === 'sector_longitude'),
         address: headers.findIndex(h => h === 'address' || h.includes('street') || h.includes('location') || h === 'site_address'),
         market: headers.findIndex(h => h === 'market' || h === 'market_name'),
-        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id' || h === 'site_id')
+        siteId: headers.findIndex(h => h === 'site' || h === 'site id' || h === 'site_id' || h === 'enodeb_id' || h === 'site_id'),
+        ecgi: findHeaderIndex(['ecgi', 'full cell id', 'cell global id'])
     };
 
     // Prioritize CGI for uniqueness, then fallback to other cell id headers
@@ -1036,8 +1083,8 @@ function parseTowerCSV(text) {
     }
 
     // If we can't find core columns, fail
-    if (colIdx.lac === -1 || colIdx.cid === -1) {
-        console.error("CSV Missing LAC or CID/CGI columns. Detected headers:", headers);
+    if ((colIdx.lac === -1 && colIdx.ecgi === -1) || colIdx.cid === -1) {
+        console.error("CSV Missing LAC/ECGI or CID/CGI columns. Detected headers:", headers);
         return 0;
     }
 
@@ -1049,12 +1096,17 @@ function parseTowerCSV(text) {
         const row = lines[i].split(delimiter).map(cell => cell.replace(/^"(.*)"$/, '$1').trim());
         if (row.length < 2) continue;
 
-        const lac = row[colIdx.lac];
+        let lac = colIdx.lac !== -1 ? row[colIdx.lac] : null;
         let cid = row[colIdx.cid];
         const cgiVal = colIdx.cgi !== -1 ? row[colIdx.cgi] : null;
+        const ecgiVal = colIdx.ecgi !== -1 ? row[colIdx.ecgi] : null;
         const lat = colIdx.lat !== -1 ? parseFloat(row[colIdx.lat]) : null;
         const lon = colIdx.lon !== -1 ? parseFloat(row[colIdx.lon]) : null;
         const address = colIdx.address !== -1 ? row[colIdx.address] : null;
+
+        if (!lac && ecgiVal) {
+            lac = deriveTacFromEcgi(ecgiVal);
+        }
 
         if (lac && cid) {
             const cgiNum = cgiVal && /^\d+$/.test(cgiVal) ? parseInt(cgiVal, 10) : null;
@@ -1070,6 +1122,15 @@ function parseTowerCSV(text) {
                 market: colIdx.market !== -1 ? row[colIdx.market] : null,
                 siteId: colIdx.siteId !== -1 ? row[colIdx.siteId] : null
             });
+            const stored = towerDatabase.get(key);
+            const fullIdKey = normalizeFullCellId(ecgiVal);
+            const shortIdKey = normalizeShortCellId(ecgiVal);
+            if (fullIdKey && stored) {
+                towerDatabaseFullId.set(fullIdKey, stored);
+            }
+            if (shortIdKey && stored) {
+                towerDatabaseShortId.set(shortIdKey, stored);
+            }
             loadedCount++;
         }
     }

@@ -949,6 +949,22 @@ function normalizeShortCellId(value) {
     return null;
 }
 
+function buildEcgiVariants(value) {
+    const variants = new Set();
+    const normalized = normalizeFullCellId(value);
+    if (!normalized) return variants;
+    variants.add(normalized);
+    if (/^\d{6}/.test(normalized)) {
+        const mccmnc = normalized.slice(0, 6);
+        const tail = normalized.slice(6);
+        if (tail) {
+            variants.add(`${mccmnc}-${tail}`);
+            variants.add(`${mccmnc}.${tail}`);
+        }
+    }
+    return variants;
+}
+
 function deriveTacFromEcgi(ecgi) {
     if (!ecgi) return null;
     const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
@@ -1332,7 +1348,8 @@ function parseTowerCSV(text) {
                 azimuth: Number.isFinite(azimuthVal) ? azimuthVal : null,
                 beamWidth: Number.isFinite(beamVal) ? beamVal : null,
                 sectorRadiusMeters: Number.isFinite(radiusVal) ? radiusVal : null,
-                sectorName: nameVal ? nameVal : null
+                sectorName: nameVal ? nameVal : null,
+                ecgi: ecgiVal || null
             });
             const stored = towerDatabase.get(key);
             const fullIdKey = normalizeFullCellId(ecgiVal);
@@ -1421,8 +1438,8 @@ async function syncTowersFromCloud(options = {}) {
     const towerStatus = document.getElementById('towerStatus');
 
     try {
-        const { needed, neededLacs } = collectNeededTowerKeys();
-        if (needed.size === 0 && neededLacs.size === 0) {
+        const { needed, neededLacs, neededEcgi } = collectNeededTowerKeys();
+        if (needed.size === 0 && neededLacs.size === 0 && neededEcgi.size === 0) {
             const storageBlocked = !canUseLocalStorage();
             towerStatus.textContent = storageBlocked
                 ? "Cloud sync skipped: browser storage blocked. Load CSV locally or allow storage."
@@ -1435,11 +1452,26 @@ async function syncTowersFromCloud(options = {}) {
             ...neededLacs,
             ...[...needed].map(key => key.split('-')[0])
         ]));
-        towerStatus.textContent = `Syncing ${lacList.length} LAC(s) from cloud...`;
-        const { data, error } = await supabaseClient
-            .from('towers')
-            .select('*')
-            .in('lac', lacList);
+        let data = [];
+        let error = null;
+        if (lacList.length > 0) {
+            towerStatus.textContent = `Syncing ${lacList.length} LAC(s) from cloud...`;
+            const resp = await supabaseClient
+                .from('towers')
+                .select('*')
+                .in('lac', lacList);
+            data = resp.data;
+            error = resp.error;
+        } else if (neededEcgi.size > 0) {
+            const ecgiList = Array.from(neededEcgi);
+            towerStatus.textContent = `Syncing ${ecgiList.length} ECGI(s) from cloud...`;
+            const resp = await supabaseClient
+                .from('towers')
+                .select('*')
+                .in('ecgi', ecgiList);
+            data = resp.data;
+            error = resp.error;
+        }
 
         if (error) throw error;
 
@@ -1479,7 +1511,7 @@ async function syncTowersFromCloud(options = {}) {
                 analyzeCDC({ skipTowerSync: true });
             }
         } else {
-            towerStatus.textContent = "No matching towers found in cloud.";
+            towerStatus.textContent = "No matching towers found in cloud (LAC/ECGI).";
         }
 
     } catch (e) {
@@ -1496,11 +1528,13 @@ async function syncTowersFromCloud(options = {}) {
 function collectNeededTowerKeys() {
     const needed = new Set();
     const neededLacs = new Set();
+    const neededEcgi = new Set();
     if (!currentAnalyzer) return { needed, neededLacs };
     currentAnalyzer.calls.forEach(call => {
         for (const loc of call.locations) {
             let lac = loc.parsed?.lac;
             let cellId = loc.parsed?.cellId;
+            const fullCellId = loc.parsed?.fullCellId;
             if ((lac === null || lac === undefined) && loc.parsed?.fullCellId) {
                 const parsed = currentAnalyzer.parseCellId(loc.parsed.fullCellId);
                 lac = parsed?.lac ?? lac;
@@ -1511,6 +1545,12 @@ function collectNeededTowerKeys() {
             }
             if (lac !== null && lac !== undefined && cellId !== null && cellId !== undefined) {
                 needed.add(`${lac}-${cellId}`);
+            }
+            if (fullCellId) {
+                const fullKey = normalizeFullCellId(fullCellId);
+                const shortKey = normalizeShortCellId(fullCellId);
+                if (fullKey) buildEcgiVariants(fullKey).forEach(v => neededEcgi.add(v));
+                if (shortKey) buildEcgiVariants(shortKey).forEach(v => neededEcgi.add(v));
             }
         }
     });
@@ -1527,9 +1567,13 @@ function collectNeededTowerKeys() {
             if (lac !== null && lac !== undefined && cellId !== null && cellId !== undefined) {
                 needed.add(`${lac}-${cellId}`);
             }
+            const fullKey = normalizeFullCellId(ecgi);
+            const shortKey = normalizeShortCellId(ecgi);
+            if (fullKey) buildEcgiVariants(fullKey).forEach(v => neededEcgi.add(v));
+            if (shortKey) buildEcgiVariants(shortKey).forEach(v => neededEcgi.add(v));
         }
     }
-    return { needed, neededLacs };
+    return { needed, neededLacs, neededEcgi };
 }
 
 async function uploadTowersToCloud() {
@@ -1556,6 +1600,7 @@ async function uploadTowersToCloud() {
             allRows.push({
                 lac,
                 cid,
+                ecgi: val.ecgi || null,
                 lat: val.lat,
                 lon: val.lon,
                 address: val.address,

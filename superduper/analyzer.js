@@ -598,6 +598,22 @@ function normalizeShortCellId(value) {
     return null;
 }
 
+function buildEcgiVariants(value) {
+    const variants = new Set();
+    const normalized = normalizeFullCellId(value);
+    if (!normalized) return variants;
+    variants.add(normalized);
+    if (/^\d{6}/.test(normalized)) {
+        const mccmnc = normalized.slice(0, 6);
+        const tail = normalized.slice(6);
+        if (tail) {
+            variants.add(`${mccmnc}-${tail}`);
+            variants.add(`${mccmnc}.${tail}`);
+        }
+    }
+    return variants;
+}
+
 function deriveTacFromEcgi(ecgi) {
     if (!ecgi) return null;
     const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
@@ -1320,6 +1336,7 @@ async function uploadTowersToCloud() {
             allRows.push({
                 lac,
                 cid,
+                ecgi: val.ecgi || null,
                 lat: val.lat,
                 lon: val.lon,
                 address: val.address,

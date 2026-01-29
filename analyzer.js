@@ -2908,7 +2908,7 @@ async function lookupWhois(ip) {
             const { data: dbData, error: dbError } = await supabaseClient
                 .from('ip_whois')
                 .select('*')
-                .eq('ip_address', cacheKey)
+                .ilike('ip_address', cacheKey)
                 .single();
 
             if (!dbError && dbData) {
@@ -3100,11 +3100,17 @@ async function performBulkWhois() {
     if (!supabaseClient) initializeSupabase();
     if (supabaseClient) {
         try {
-            const ipAddresses = Array.from(ipMap.keys());
+            const ipAddresses = new Set();
+            for (const [cacheKey, items] of ipMap.entries()) {
+                ipAddresses.add(cacheKey);
+                items.forEach(item => {
+                    if (item.ip) ipAddresses.add(item.ip);
+                });
+            }
             const { data: dbData, error: dbError } = await supabaseClient
                 .from('ip_whois')
                 .select('*')
-                .in('ip_address', ipAddresses);
+                .in('ip_address', Array.from(ipAddresses));
 
             if (!dbError && dbData) {
                 // Display all database hits immediately

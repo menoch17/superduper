@@ -952,6 +952,12 @@ function normalizeShortCellId(value) {
 function deriveTacFromEcgi(ecgi) {
     if (!ecgi) return null;
     const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
+    if (!cleaned) return null;
+    if (/^\d{6}[0-9a-fA-F]{7,}$/.test(cleaned)) {
+        const tacHex = cleaned.slice(6, 10);
+        const tacNum = parseInt(tacHex, 16);
+        return Number.isNaN(tacNum) ? null : tacNum.toString();
+    }
     const parts = cleaned.split(/[-:]/).filter(Boolean);
     const hexPart = parts.length > 1 ? parts[1] : parts[0];
     if (!hexPart) return null;
@@ -1415,8 +1421,8 @@ async function syncTowersFromCloud(options = {}) {
     const towerStatus = document.getElementById('towerStatus');
 
     try {
-        const needed = collectNeededTowerKeys();
-        if (needed.size === 0) {
+        const { needed, neededLacs } = collectNeededTowerKeys();
+        if (needed.size === 0 && neededLacs.size === 0) {
             const storageBlocked = !canUseLocalStorage();
             towerStatus.textContent = storageBlocked
                 ? "Cloud sync skipped: browser storage blocked. Load CSV locally or allow storage."
@@ -1425,12 +1431,15 @@ async function syncTowersFromCloud(options = {}) {
             return;
         }
 
-        const neededLacs = Array.from(new Set([...needed].map(key => key.split('-')[0])).values());
-        towerStatus.textContent = `Syncing ${needed.size} towers...`;
+        const lacList = Array.from(new Set([
+            ...neededLacs,
+            ...[...needed].map(key => key.split('-')[0])
+        ]));
+        towerStatus.textContent = `Syncing ${lacList.length} LAC(s) from cloud...`;
         const { data, error } = await supabaseClient
             .from('towers')
             .select('*')
-            .in('lac', neededLacs);
+            .in('lac', lacList);
 
         if (error) throw error;
 
@@ -1438,7 +1447,7 @@ async function syncTowersFromCloud(options = {}) {
             let loaded = 0;
             data.forEach(row => {
                 const key = `${row.lac}-${row.cid}`;
-                if (needed.has(key)) {
+                if (needed.size === 0 || needed.has(key)) {
                     towerDatabase.set(key, {
                         lat: row.lat,
                         lon: row.lon,
@@ -1450,6 +1459,15 @@ async function syncTowersFromCloud(options = {}) {
                         sectorRadiusMeters: row.radius,
                         sectorName: row.sector
                     });
+                    const stored = towerDatabase.get(key);
+                    const fullIdKey = normalizeFullCellId(row.ecgi);
+                    const shortIdKey = normalizeShortCellId(row.ecgi);
+                    if (fullIdKey && stored) {
+                        towerDatabaseFullId.set(fullIdKey, stored);
+                    }
+                    if (shortIdKey && stored) {
+                        towerDatabaseShortId.set(shortIdKey, stored);
+                    }
                     loaded++;
                 }
             });
@@ -1477,17 +1495,26 @@ async function syncTowersFromCloud(options = {}) {
 
 function collectNeededTowerKeys() {
     const needed = new Set();
-    if (!currentAnalyzer) return needed;
+    const neededLacs = new Set();
+    if (!currentAnalyzer) return { needed, neededLacs };
     currentAnalyzer.calls.forEach(call => {
         for (const loc of call.locations) {
-            const lac = loc.parsed?.lac;
-            const cellId = loc.parsed?.cellId;
-            if (lac && cellId) {
+            let lac = loc.parsed?.lac;
+            let cellId = loc.parsed?.cellId;
+            if ((lac === null || lac === undefined) && loc.parsed?.fullCellId) {
+                const parsed = currentAnalyzer.parseCellId(loc.parsed.fullCellId);
+                lac = parsed?.lac ?? lac;
+                cellId = parsed?.cellId ?? cellId;
+            }
+            if (lac !== null && lac !== undefined) {
+                neededLacs.add(String(lac));
+            }
+            if (lac !== null && lac !== undefined && cellId !== null && cellId !== undefined) {
                 needed.add(`${lac}-${cellId}`);
             }
         }
     });
-    return needed;
+    return { needed, neededLacs };
 }
 
 async function uploadTowersToCloud() {

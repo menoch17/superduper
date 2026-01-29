@@ -601,6 +601,12 @@ function normalizeShortCellId(value) {
 function deriveTacFromEcgi(ecgi) {
     if (!ecgi) return null;
     const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
+    if (!cleaned) return null;
+    if (/^\d{6}[0-9a-fA-F]{7,}$/.test(cleaned)) {
+        const tacHex = cleaned.slice(6, 10);
+        const tacNum = parseInt(tacHex, 16);
+        return Number.isNaN(tacNum) ? null : tacNum.toString();
+    }
     const parts = cleaned.split(/[-:]/).filter(Boolean);
     const hexPart = parts.length > 1 ? parts[1] : parts[0];
     if (!hexPart) return null;
@@ -1259,6 +1265,15 @@ async function syncTowersFromCloud(options = {}) {
                     market: row.market,
                     siteId: row.site_id
                 });
+                const stored = towerDatabase.get(key);
+                const fullIdKey = normalizeFullCellId(row.ecgi);
+                const shortIdKey = normalizeShortCellId(row.ecgi);
+                if (fullIdKey && stored) {
+                    towerDatabaseFullId.set(fullIdKey, stored);
+                }
+                if (shortIdKey && stored) {
+                    towerDatabaseShortId.set(shortIdKey, stored);
+                }
             });
 
             towerStatus.innerHTML = `<span style="color: var(--success-color); font-weight: 600;">✓ ${allData.length} towers synced from Cloud</span>`;

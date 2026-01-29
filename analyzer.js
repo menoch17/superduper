@@ -676,6 +676,22 @@ function analyzeCDC(options = {}) {
     try {
         currentAnalyzer = new CDCAnalyzer(input);
         currentAnalyzer.parse();
+        if (![...currentAnalyzer.calls.values()].some(call => call.locations.length > 0)) {
+            const matches = input.matchAll(/utran-cell-id-3gpp=([0-9a-fA-F]+)/gi);
+            const firstCall = currentAnalyzer.calls.values().next().value;
+            for (const match of matches) {
+                const ecgi = match[1];
+                const parsed = currentAnalyzer.parseCellId(ecgi);
+                if (firstCall) {
+                    firstCall.locations.push({
+                        type: 'P-A-N-I-Header (Global Fallback)',
+                        rawData: match[0],
+                        parsed,
+                        timestamp: firstCall.startTime || currentAnalyzer.messages?.[0]?.timestamp
+                    });
+                }
+            }
+        }
 
         const selector = document.getElementById('callSelector');
         selector.innerHTML = '';

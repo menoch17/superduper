@@ -1991,8 +1991,6 @@ function analyzePacketData() {
     const serviceStats = {};
     const portStats = {};
     const appDetection = {};
-    const domainStats = {};
-    const hostStats = {};
     const destinationStats = {};
     const durationStats = {
         all: [],
@@ -2007,8 +2005,6 @@ function analyzePacketData() {
         const bytes = parseInt(packet['Bytes']) || 0;
         const effectivePort = srcPort;
         const durationSeconds = parseDurationToSeconds(packet['Duration']);
-        const domain = (packet['Domain'] || '').trim();
-        const host = (packet['Cached Associate Hostname'] || packet['Associate Host Name'] || '').trim();
 
         // Analyze source IP
         if (srcIP && srcIP !== '' && !srcIP.startsWith('fd00:')) {
@@ -2060,24 +2056,6 @@ function analyzePacketData() {
             serviceStats[protocol] = (serviceStats[protocol] || 0) + 1;
         }
 
-        // Domain stats
-        if (domain) {
-            if (!domainStats[domain]) {
-                domainStats[domain] = { count: 0, bytes: 0 };
-            }
-            domainStats[domain].count++;
-            domainStats[domain].bytes += bytes;
-        }
-
-        // Host stats
-        if (host) {
-            if (!hostStats[host]) {
-                hostStats[host] = { count: 0, bytes: 0 };
-            }
-            hostStats[host].count++;
-            hostStats[host].bytes += bytes;
-        }
-
         // Duration stats
         if (durationSeconds > 0) {
             durationStats.all.push(durationSeconds);
@@ -2106,12 +2084,10 @@ function analyzePacketData() {
         serviceStats,
         portStats,
         appDetection,
-        domainStats,
-        hostStats,
         durationStats,
         destinationStats
     };
-    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, domainStats, hostStats, durationStats, destinationStats);
+    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats);
 }
 
 function identifyService(ip, port) {
@@ -2222,7 +2198,7 @@ async function getWhoisCacheStats() {
     }
 }
 
-function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, domainStats, hostStats, durationStats, destinationStats) {
+function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats) {
     const resultsDiv = document.getElementById('packetResults');
     resultsDiv.style.display = 'block';
 
@@ -2274,9 +2250,10 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<thead><tr><th>By Bytes</th><th style="text-align: right;">Bytes</th><th style="text-align: right;">Packets</th></tr></thead><tbody>';
     topTalkersByBytes.forEach(([ip, data]) => {
         const ipKey = ip.replace(/:/g, '-');
+        const displayName = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
         html += `<tr>
             <td style="padding: 10px;">
-                <div data-whois-name="${ip}" style="font-weight: 600;">${ipWhoisNameCache[ip] || ip}</div>
+                <div data-whois-name="${ip}" style="font-weight: 600;">${displayName}</div>
                 <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
                 <span id="whois-${ipKey}-talker" style="display: none;"></span>
             </td>
@@ -2289,9 +2266,10 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<thead><tr><th>By Packets</th><th style="text-align: right;">Packets</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
     topTalkersByPackets.forEach(([ip, data]) => {
         const ipKey = ip.replace(/:/g, '-');
+        const displayName = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
         html += `<tr>
             <td style="padding: 10px;">
-                <div data-whois-name="${ip}" style="font-weight: 600;">${ipWhoisNameCache[ip] || ip}</div>
+                <div data-whois-name="${ip}" style="font-weight: 600;">${displayName}</div>
                 <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
                 <span id="whois-${ipKey}-talker" style="display: none;"></span>
             </td>
@@ -2320,8 +2298,6 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         html += '<p style="color: var(--text-secondary); margin-bottom: 25px;">No protocol session data available.</p>';
     }
 
-    // Domain / Host Insights
-    const domainCount = Object.keys(domainStats).length;
     const topDestinations = Object.entries(destinationStats || {})
         .sort((a, b) => b[1].bytes - a[1].bytes)
         .slice(0, 12)
@@ -2330,37 +2306,29 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
             const source = reverseDnsCache[ip] ? 'PTR' : (ipWhoisNameCache[ip] ? 'WHOIS' : 'IP');
             return { ip, name, source, bytes: stats.bytes, packets: stats.packets };
         });
-
-    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Domain / Host Insights</h3>';
-    if (domainCount === 0 && topDestinations.length === 0) {
-        html += '<div class="summary-card" style="margin-bottom: 25px;">';
-        html += '<div class="summary-label">No Domain/Host Data</div>';
-        html += '<div style="color: var(--text-secondary); margin-top: 6px; font-size: 0.95rem;">This dataset has no values in Domain, Cached Associate Hostname, or Associate Host Name fields.</div>';
-        html += '</div>';
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top Destinations (PTR/WHOIS)</h3>';
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 25px;">';
+    html += '<div style="overflow-x: auto; grid-column: 1 / -1;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+    html += '<thead><tr><th>Destination</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
+    if (topDestinations.length) {
+        topDestinations.forEach(item => {
+            html += `<tr>
+                <td style="padding: 10px;">
+                    <div data-whois-name="${item.ip}" style="font-weight: 600;">${item.name}</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${item.ip} · ${item.source}</div>
+                </td>
+                <td style="padding: 10px; text-align: right;">${item.packets}</td>
+                <td style="padding: 10px; text-align: right;">${formatBytes(item.bytes)}</td>
+            </tr>`;
+        });
     } else {
-        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 25px;">';
-        html += '<div style="overflow-x: auto; grid-column: 1 / -1;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-        html += '<thead><tr><th>Top Destinations (PTR/WHOIS)</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
-        if (topDestinations.length) {
-            topDestinations.forEach(item => {
-                html += `<tr>
-                    <td style="padding: 10px;">
-                        <div data-whois-name="${item.ip}" style="font-weight: 600;">${item.name}</div>
-                        <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${item.ip} · ${item.source}</div>
-                    </td>
-                    <td style="padding: 10px; text-align: right;">${item.packets}</td>
-                    <td style="padding: 10px; text-align: right;">${formatBytes(item.bytes)}</td>
-                </tr>`;
-            });
-        } else {
-            html += '<tr><td colspan="3" style="padding: 10px; color: var(--text-secondary);">No destination stats available.</td></tr>';
-        }
-        html += '</tbody></table>';
-        html += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">';
-        html += '<button class="btn-secondary" onclick="resolveReverseDNS()">Resolve PTR for top destinations</button>';
-        html += '<span id="ptrStatus">PTR lookups are often missing; WHOIS is used as fallback.</span>';
-        html += '</div></div></div>';
+        html += '<tr><td colspan="3" style="padding: 10px; color: var(--text-secondary);">No destination stats available.</td></tr>';
     }
+    html += '</tbody></table>';
+    html += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">';
+    html += '<button class="btn-secondary" onclick="resolveReverseDNS()">Resolve PTR for top destinations</button>';
+    html += '<span id="ptrStatus">PTR lookups are often missing; WHOIS is used as fallback.</span>';
+    html += '</div></div></div>';
 
     // Top IPs Section
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top IP Addresses</h3>';
@@ -2392,10 +2360,11 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         const ports = Array.from(data.ports).slice(0, 5).join(', ');
         const protocols = Array.from(data.protocols).join(', ');
         const ipKey = ip.replace(/:/g, '-');
+        const displayName = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
         html += `
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <td style="padding: 10px;">
-                    <div id="whois-name-${ipKey}" style="font-weight: 600;">${ip}</div>
+                    <div id="whois-name-${ipKey}" style="font-weight: 600;">${displayName}</div>
                     <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
                     <span id="whois-${ipKey}" style="display: none;"></span>
                 </td>
@@ -2801,8 +2770,6 @@ async function resolveReverseDNS() {
         lastPacketAnalysis.serviceStats,
         lastPacketAnalysis.portStats,
         lastPacketAnalysis.appDetection,
-        lastPacketAnalysis.domainStats,
-        lastPacketAnalysis.hostStats,
         lastPacketAnalysis.durationStats,
         lastPacketAnalysis.destinationStats
     );

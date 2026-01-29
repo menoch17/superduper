@@ -1363,15 +1363,36 @@ async function uploadTowersToCloud() {
 
         const BATCH_SIZE = 500;
         let uploaded = 0;
+        const withEcgi = [];
+        const withoutEcgi = [];
 
-        for (let i = 0; i < allRows.length; i += BATCH_SIZE) {
-            const chunk = allRows.slice(i, i + BATCH_SIZE);
-            towerStatus.textContent = `Uploading chunk... (${i + chunk.length} / ${allRows.length})`;
+        allRows.forEach(row => {
+            if (row.ecgi) withEcgi.push(row);
+            else withoutEcgi.push(row);
+        });
 
-            const { error } = await supabaseClient.from('towers').upsert(chunk, { onConflict: 'lac,cid' });
-            if (error) throw error;
+        const uploadChunks = async (rows, onConflict, label) => {
+            for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+                const rawChunk = rows.slice(i, i + BATCH_SIZE);
+                const chunkMap = new Map();
+                rawChunk.forEach(row => {
+                    const key = onConflict === 'ecgi' ? row.ecgi : `${row.lac}-${row.cid}`;
+                    chunkMap.set(key, row);
+                });
+                const uniqueChunk = Array.from(chunkMap.values());
+                towerStatus.textContent = `Uploading ${label}... (${Math.min(i + uniqueChunk.length, rows.length)} / ${rows.length})`;
 
-            uploaded += chunk.length;
+                const { error } = await supabaseClient.from('towers').upsert(uniqueChunk, { onConflict });
+                if (error) throw error;
+                uploaded += uniqueChunk.length;
+            }
+        };
+
+        if (withEcgi.length > 0) {
+            await uploadChunks(withEcgi, 'ecgi', 'ECGI');
+        }
+        if (withoutEcgi.length > 0) {
+            await uploadChunks(withoutEcgi, 'lac,cid', 'LAC/CID');
         }
 
         alert(`Successfully uploaded ${uploaded} records to the cloud!`);

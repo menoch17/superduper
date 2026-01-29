@@ -626,6 +626,7 @@ function getDecimalValue(value) {
 let currentAnalyzer = null;
 let towerDatabase = new Map(); // Key: LAC-CID, Value: { lat, lon, address, market, siteId, azimuth, beamWidth, sectorName, sectorRadiusMeters }
 let towerDatabaseFullId = new Map(); // Key: normalized full cell IDs (ECGI, UTRAN)
+let towerDatabaseShortId = new Map(); // Key: normalized short cell IDs (MCCMNC + ECI)
 let supabaseClient = null;
 let leafletMap = null;
 let sectorLayers = [];
@@ -775,8 +776,10 @@ function displayResults(call, analyzer) {
                     ${call.locations.map(loc => {
             const compositeKey = `${loc.parsed.lac}-${loc.parsed.cellId}`;
             const fullKey = normalizeFullCellId(loc.parsed.fullCellId);
+            const shortKey = normalizeShortCellId(loc.parsed.fullCellId);
             let tower = towerDatabase.get(compositeKey);
             if (!tower && fullKey) tower = towerDatabaseFullId.get(fullKey);
+            if (!tower && shortKey) tower = towerDatabaseShortId.get(shortKey);
             const lacDecimal = getDecimalValue(loc.parsed.lac);
             const cellDecimal = getDecimalValue(loc.parsed.cellId);
             const openCellLink = (lacDecimal !== null && cellDecimal !== null)
@@ -910,6 +913,17 @@ function normalizeFullCellId(value) {
     return value.toString().trim().toLowerCase().replace(/[^0-9a-f]/g, '');
 }
 
+function normalizeShortCellId(value) {
+    const normalized = normalizeFullCellId(value);
+    if (!normalized) return null;
+    if (!/^\d{6}/.test(normalized)) return null;
+    const mccmnc = normalized.slice(0, 6);
+    const rest = normalized.slice(6);
+    if (rest.length === 7) return normalized;
+    if (rest.length >= 11) return mccmnc + rest.slice(-7);
+    return null;
+}
+
 function deriveTacFromEcgi(ecgi) {
     if (!ecgi) return null;
     const cleaned = ecgi.toString().trim().replace(/[^0-9a-fA-F\-:]/g, '');
@@ -1006,7 +1020,12 @@ function initMap(locations) {
         locations.forEach(loc => {
             if (!loc.parsed.lac || !loc.parsed.cellId) return;
 
-            const tower = towerDatabase.get(`${loc.parsed.lac}-${loc.parsed.cellId}`);
+            const compositeKey = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+            const fullKey = normalizeFullCellId(loc.parsed.fullCellId);
+            const shortKey = normalizeShortCellId(loc.parsed.fullCellId);
+            let tower = towerDatabase.get(compositeKey);
+            if (!tower && fullKey) tower = towerDatabaseFullId.get(fullKey);
+            if (!tower && shortKey) tower = towerDatabaseShortId.get(shortKey);
             let lat, lng, isPrecise = false;
 
             if (tower && tower.lat && tower.lon) {
@@ -1286,8 +1305,12 @@ function parseTowerCSV(text) {
             });
             const stored = towerDatabase.get(key);
             const fullIdKey = normalizeFullCellId(ecgiVal);
+            const shortIdKey = normalizeShortCellId(ecgiVal);
             if (fullIdKey && stored) {
                 towerDatabaseFullId.set(fullIdKey, stored);
+            }
+            if (shortIdKey && stored) {
+                towerDatabaseShortId.set(shortIdKey, stored);
             }
             loadedCount++;
         }

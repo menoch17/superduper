@@ -1482,6 +1482,7 @@ async function syncTowersFromCloud(options = {}) {
         ]));
         let data = [];
         let error = null;
+        let usedEcgiLookup = false;
         if (lacList.length > 0) {
             towerStatus.textContent = `Syncing ${lacList.length} LAC(s) from cloud...`;
             const resp = await supabaseClient
@@ -1502,6 +1503,7 @@ async function syncTowersFromCloud(options = {}) {
                 .in('ecgi_norm', Array.from(new Set(normList)));
             data = resp.data || [];
             error = resp.error;
+            usedEcgiLookup = true;
         }
 
         if (error) throw error;
@@ -1510,7 +1512,7 @@ async function syncTowersFromCloud(options = {}) {
             let loaded = 0;
             data.forEach(row => {
                 const key = `${row.lac}-${row.cid}`;
-                if (needed.size === 0 || needed.has(key)) {
+                if (usedEcgiLookup || needed.size === 0 || needed.has(key)) {
                     towerDatabase.set(key, {
                         lat: row.lat,
                         lon: row.lon,
@@ -3076,4 +3078,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi5) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi6) loaded and ready (Supabase Cloud Support).");

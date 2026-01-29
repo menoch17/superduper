@@ -1481,4 +1481,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi5) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi6) loaded and ready (Supabase Cloud Support).");

@@ -1992,6 +1992,7 @@ function analyzePacketData() {
     const portStats = {};
     const appDetection = {};
     const destinationStats = {};
+    const timelineStats = {};
     const durationStats = {
         all: [],
         byProtocol: {}
@@ -2005,6 +2006,7 @@ function analyzePacketData() {
         const bytes = parseInt(packet['Bytes']) || 0;
         const effectivePort = srcPort;
         const durationSeconds = parseDurationToSeconds(packet['Duration']);
+        const startTime = packet['Start Time'] || packet['StartTime'] || '';
 
         // Analyze source IP
         if (srcIP && srcIP !== '' && !srcIP.startsWith('fd00:')) {
@@ -2077,6 +2079,22 @@ function analyzePacketData() {
             appDetection[app].ips.add(srcIP);
             appDetection[app].ips.add(dstIP);
         }
+
+        const bucketKey = getTimelineBucketKey(startTime);
+        if (bucketKey) {
+            if (!timelineStats[bucketKey]) {
+                timelineStats[bucketKey] = { count: 0, bytes: 0, apps: {}, protocols: {} };
+            }
+            timelineStats[bucketKey].count++;
+            timelineStats[bucketKey].bytes += bytes;
+            if (app) {
+                timelineStats[bucketKey].apps[app] = (timelineStats[bucketKey].apps[app] || 0) + bytes;
+            }
+            if (protocol) {
+                const protoKey = protocol.toUpperCase();
+                timelineStats[bucketKey].protocols[protoKey] = (timelineStats[bucketKey].protocols[protoKey] || 0) + 1;
+            }
+        }
     });
 
     lastPacketAnalysis = {
@@ -2085,9 +2103,10 @@ function analyzePacketData() {
         portStats,
         appDetection,
         durationStats,
-        destinationStats
+        destinationStats,
+        timelineStats
     };
-    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats);
+    displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats, timelineStats);
 }
 
 function identifyService(ip, port) {
@@ -2198,7 +2217,7 @@ async function getWhoisCacheStats() {
     }
 }
 
-function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats) {
+function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats, timelineStats) {
     const resultsDiv = document.getElementById('packetResults');
     resultsDiv.style.display = 'block';
 
@@ -2250,11 +2269,11 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<thead><tr><th>By Bytes</th><th style="text-align: right;">Bytes</th><th style="text-align: right;">Packets</th></tr></thead><tbody>';
     topTalkersByBytes.forEach(([ip, data]) => {
         const ipKey = ip.replace(/:/g, '-');
-        const displayName = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
+        const displayMeta = getIpDisplayMeta(ip);
         html += `<tr>
             <td style="padding: 10px;">
-                <div data-whois-name="${ip}" style="font-weight: 600;">${displayName}</div>
-                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                <div data-whois-name="${ip}" style="font-weight: 600;">${displayMeta.name}</div>
+                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
                 <span id="whois-${ipKey}-talker" style="display: none;"></span>
             </td>
             <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
@@ -2266,11 +2285,11 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<thead><tr><th>By Packets</th><th style="text-align: right;">Packets</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
     topTalkersByPackets.forEach(([ip, data]) => {
         const ipKey = ip.replace(/:/g, '-');
-        const displayName = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
+        const displayMeta = getIpDisplayMeta(ip);
         html += `<tr>
             <td style="padding: 10px;">
-                <div data-whois-name="${ip}" style="font-weight: 600;">${displayName}</div>
-                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                <div data-whois-name="${ip}" style="font-weight: 600;">${displayMeta.name}</div>
+                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
                 <span id="whois-${ipKey}-talker" style="display: none;"></span>
             </td>
             <td style="padding: 10px; text-align: right;">${data.packets}</td>
@@ -2330,6 +2349,27 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<span id="ptrStatus">PTR lookups are often missing; WHOIS is used as fallback.</span>';
     html += '</div></div></div>';
 
+    // Usage Timeline
+    if (timelineStats && Object.keys(timelineStats).length) {
+        const timelineRows = Object.entries(timelineStats)
+            .sort((a, b) => new Date(a[0]) - new Date(b[0]));
+        html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Usage Timeline</h3>';
+        html += '<div style="overflow-x: auto; margin-bottom: 25px;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr><th>Time Bucket</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th><th>Top App</th><th>Top Protocol</th></tr></thead><tbody>';
+        timelineRows.forEach(([bucket, stats]) => {
+            const topApp = Object.entries(stats.apps).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+            const topProto = Object.entries(stats.protocols).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+            html += `<tr>
+                <td style="padding: 10px;">${bucket}</td>
+                <td style="padding: 10px; text-align: right;">${stats.count}</td>
+                <td style="padding: 10px; text-align: right;">${formatBytes(stats.bytes)}</td>
+                <td style="padding: 10px;">${formatAppName(topApp)}</td>
+                <td style="padding: 10px;">${topProto}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
+
     // Top IPs Section
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top IP Addresses</h3>';
     html += `
@@ -2360,12 +2400,12 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         const ports = Array.from(data.ports).slice(0, 5).join(', ');
         const protocols = Array.from(data.protocols).join(', ');
         const ipKey = ip.replace(/:/g, '-');
-        const displayName = reverseDnsCache[ip] || ipWhoisNameCache[ip] || ip;
+        const displayMeta = getIpDisplayMeta(ip);
         html += `
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <td style="padding: 10px;">
-                    <div id="whois-name-${ipKey}" style="font-weight: 600;">${displayName}</div>
-                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip}</div>
+                    <div id="whois-name-${ipKey}" style="font-weight: 600;">${displayMeta.name}</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
                     <span id="whois-${ipKey}" style="display: none;"></span>
                 </td>
                 <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
@@ -2624,6 +2664,40 @@ function parseDurationToSeconds(duration) {
     return Math.max(0, (h * 3600) + (m * 60) + s);
 }
 
+function parsePacketTime(value) {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+    return null;
+}
+
+function getTimelineBucketKey(value) {
+    const date = parsePacketTime(value);
+    if (!date) return null;
+    const bucketMinutes = 5;
+    const ms = date.getTime();
+    const bucketMs = bucketMinutes * 60 * 1000;
+    const floored = new Date(Math.floor(ms / bucketMs) * bucketMs);
+    return floored.toLocaleString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    });
+}
+
+function getIpDisplayMeta(ip) {
+    if (reverseDnsCache[ip]) {
+        return { name: reverseDnsCache[ip], source: 'PTR' };
+    }
+    if (ipWhoisNameCache[ip]) {
+        return { name: ipWhoisNameCache[ip], source: 'WHOIS' };
+    }
+    return { name: ip, source: 'IP' };
+}
+
 function summarizeDurations(list) {
     if (!list || list.length === 0) return null;
     const sorted = [...list].sort((a, b) => a - b);
@@ -2771,7 +2845,8 @@ async function resolveReverseDNS() {
         lastPacketAnalysis.portStats,
         lastPacketAnalysis.appDetection,
         lastPacketAnalysis.durationStats,
-        lastPacketAnalysis.destinationStats
+        lastPacketAnalysis.destinationStats,
+        lastPacketAnalysis.timelineStats
     );
 }
 

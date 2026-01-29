@@ -2353,7 +2353,6 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top IP Addresses</h3>';
     html += `
         <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
-            <button class="btn-secondary" onclick="performBulkWhois()">Run WHOIS on All IPs</button>
             <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
         </div>
     `;

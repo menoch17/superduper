@@ -694,10 +694,33 @@ function analyzeCDC(options = {}) {
         }
         if (![...currentAnalyzer.calls.values()].some(call => call.locations.length > 0)) {
             const firstCall = currentAnalyzer.calls.values().next().value;
-            const signalMatches = input.matchAll(/signalingMsg\s*=\s*([0-9a-fA-F]+)/gi);
+            for (const message of currentAnalyzer.messages) {
+                const sigMatch = message.rawBlock.match(/(?:sigMsg|signalingMsg(?:\[\d+\])?)\s*=\s*([\s\S]*?)(?=\[bin\]|$)/i);
+                if (!sigMatch) continue;
+                const decoded = decodePossibleHex(sigMatch[1]);
+                const cellMatch = decoded.match(/P-Access-Network-Info:[^\n]*utran-cell-id-3gpp=([0-9a-fA-F]+)/i);
+                if (cellMatch) {
+                    const ecgi = cellMatch[1];
+                    const parsed = currentAnalyzer.parseCellId(ecgi);
+                    const callKey = (message.callId || 'global-events').toLowerCase();
+                    const call = currentAnalyzer.calls.get(callKey) || firstCall;
+                    if (call) {
+                        call.locations.push({
+                            type: 'P-A-N-I-Header (Hex Fallback)',
+                            rawData: decoded,
+                            parsed,
+                            timestamp: message.timestamp || call.startTime || currentAnalyzer.messages?.[0]?.timestamp
+                        });
+                    }
+                }
+            }
+        }
+        if (![...currentAnalyzer.calls.values()].some(call => call.locations.length > 0)) {
+            const firstCall = currentAnalyzer.calls.values().next().value;
+            const signalMatches = input.matchAll(/signalingMsg\s*=\s*([0-9a-fA-F\s]+)/gi);
             for (const match of signalMatches) {
                 const decoded = decodePossibleHex(match[1]);
-                const cellMatch = decoded.match(/utran-cell-id-3gpp=([0-9a-fA-F]+)/i);
+                const cellMatch = decoded.match(/P-Access-Network-Info:[^\n]*utran-cell-id-3gpp=([0-9a-fA-F]+)/i);
                 if (cellMatch && firstCall) {
                     const ecgi = cellMatch[1];
                     const parsed = currentAnalyzer.parseCellId(ecgi);
@@ -3240,4 +3263,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi6) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi11) loaded and ready (Supabase Cloud Support).");

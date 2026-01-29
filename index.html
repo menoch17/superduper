@@ -92,6 +92,13 @@ Example message types this tool can parse:
                                 onclick="document.getElementById('packetFileInput').click()">Upload Packet CSV</button>
                             <button class="btn-secondary" onclick="clearPacketAnalysis()">Clear Results</button>
                         </div>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);">
+                                <span>Target:</span>
+                                <select id="packetTargetSelectCard" class="btn-secondary" style="padding: 6px 10px;"
+                                    onchange="setPacketTargetFilter(this.value)"></select>
+                            </label>
+                        </div>
                         <div id="packetStatus" class="status-chip">
                             No packet data loaded
                         </div>

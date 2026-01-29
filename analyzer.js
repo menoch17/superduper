@@ -2107,6 +2107,7 @@ function analyzePacketData() {
         timelineStats
     };
     displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection, durationStats, destinationStats, timelineStats);
+    refreshPacketTargetSelect();
 }
 
 function identifyService(ip, port) {
@@ -2345,39 +2346,13 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     }
     html += '</tbody></table>';
     html += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">';
-    html += '<button class="btn-secondary" onclick="resolveReverseDNS()">Resolve PTR for top destinations</button>';
     html += '<span id="ptrStatus">PTR lookups are often missing; WHOIS is used as fallback.</span>';
     html += '</div></div></div>';
-
-    // Usage Timeline
-    if (timelineStats && Object.keys(timelineStats).length) {
-        const timelineRows = Object.entries(timelineStats)
-            .sort((a, b) => new Date(a[0]) - new Date(b[0]));
-        html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Usage Timeline</h3>';
-        html += '<div style="overflow-x: auto; margin-bottom: 25px;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-        html += '<thead><tr><th>Time Bucket</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th><th>Top App</th><th>Top Protocol</th></tr></thead><tbody>';
-        timelineRows.forEach(([bucket, stats]) => {
-            const topApp = Object.entries(stats.apps).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
-            const topProto = Object.entries(stats.protocols).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
-            html += `<tr>
-                <td style="padding: 10px;">${bucket}</td>
-                <td style="padding: 10px; text-align: right;">${stats.count}</td>
-                <td style="padding: 10px; text-align: right;">${formatBytes(stats.bytes)}</td>
-                <td style="padding: 10px;">${formatAppName(topApp)}</td>
-                <td style="padding: 10px;">${topProto}</td>
-            </tr>`;
-        });
-        html += '</tbody></table></div>';
-    }
 
     // Top IPs Section
     html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Top IP Addresses</h3>';
     html += `
-        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);">
-                <span>Target:</span>
-                <select id="packetTargetSelect" class="btn-secondary" style="padding: 6px 10px;" onchange="setPacketTargetFilter(this.value)"></select>
-            </label>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
             <button class="btn-secondary" onclick="performBulkWhois()">Run WHOIS on All IPs</button>
             <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
         </div>
@@ -2421,17 +2396,30 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
 
     html += '</div></div>';
 
+    // Usage Timeline (bottom card)
+    if (timelineStats && Object.keys(timelineStats).length) {
+        const timelineRows = Object.entries(timelineStats)
+            .sort((a, b) => new Date(a[0]) - new Date(b[0]));
+        html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Usage Timeline</h3>';
+        html += '<div style="overflow-x: auto; margin-bottom: 25px;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr><th>Time Bucket</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th><th>Top App</th><th>Top Protocol</th></tr></thead><tbody>';
+        timelineRows.forEach(([bucket, stats]) => {
+            const topApp = Object.entries(stats.apps).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+            const topProto = Object.entries(stats.protocols).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+            html += `<tr>
+                <td style="padding: 10px;">${bucket}</td>
+                <td style="padding: 10px; text-align: right;">${stats.count}</td>
+                <td style="padding: 10px; text-align: right;">${formatBytes(stats.bytes)}</td>
+                <td style="padding: 10px;">${formatAppName(topApp)}</td>
+                <td style="padding: 10px;">${topProto}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
+
     resultsDiv.innerHTML = html;
     if (!reverseDnsStats.attempted) {
         setTimeout(() => resolveReverseDNS(), 0);
-    }
-
-    // Populate target dropdown
-    const targetSelect = document.getElementById('packetTargetSelect');
-    if (targetSelect) {
-        const options = getPacketTargetOptions();
-        targetSelect.innerHTML = options.map(t => `<option value="${t}">${t}</option>`).join('');
-        targetSelect.value = packetTargetFilter || 'All';
     }
 
     // Update cache stats
@@ -2862,6 +2850,14 @@ function getPacketTargetOptions() {
 function setPacketTargetFilter(value) {
     packetTargetFilter = value || 'All';
     analyzePacketData();
+}
+
+function refreshPacketTargetSelect() {
+    const targetSelect = document.getElementById('packetTargetSelectCard');
+    if (!targetSelect) return;
+    const options = getPacketTargetOptions();
+    targetSelect.innerHTML = options.map(t => `<option value="${t}">${t}</option>`).join('');
+    targetSelect.value = packetTargetFilter || 'All';
 }
 
 async function lookupWhois(ip) {

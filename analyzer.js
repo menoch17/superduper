@@ -1514,6 +1514,21 @@ function collectNeededTowerKeys() {
             }
         }
     });
+    if (neededLacs.size === 0 && currentAnalyzer.rawData) {
+        const matches = currentAnalyzer.rawData.matchAll(/utran-cell-id-3gpp=([0-9a-fA-F]+)/gi);
+        for (const match of matches) {
+            const ecgi = match[1];
+            const parsed = currentAnalyzer.parseCellId(ecgi);
+            const lac = parsed?.lac ?? deriveTacFromEcgi(ecgi);
+            const cellId = parsed?.cellId ?? null;
+            if (lac !== null && lac !== undefined) {
+                neededLacs.add(String(lac));
+            }
+            if (lac !== null && lac !== undefined && cellId !== null && cellId !== undefined) {
+                needed.add(`${lac}-${cellId}`);
+            }
+        }
+    }
     return { needed, neededLacs };
 }
 

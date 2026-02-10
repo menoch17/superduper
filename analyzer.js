@@ -5646,7 +5646,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
             const height = Math.max(6, Math.round((count / maxHourly) * 140));
             const active = callAnalysisTimeFilter?.type === 'hour' && callAnalysisTimeFilter.value === hour;
             hourlyHTML += `
-                <div class="call-hour-bar" data-hour="${hour}" title="${String(hour).padStart(2, '0')}:00 • ${count}" style="height: ${height}px; background: ${active ? 'var(--success-color)' : 'var(--accent-color)'}; border-radius: 4px; cursor: pointer;"></div>
+                <div class="call-hour-bar" data-hour="${hour}" title="${String(hour).padStart(2, '0')}:00 • ${count}" style="height: ${height}px; background: ${active ? 'var(--success-color, #16a34a)' : 'var(--accent-color, #d97706)'}; border-radius: 4px; cursor: pointer;"></div>
             `;
         });
         hourlyHTML += '</div>';
@@ -5676,7 +5676,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
             const height = Math.max(8, Math.round((count / maxDayOfWeek) * 140));
             const active = callAnalysisTimeFilter?.type === 'day' && callAnalysisTimeFilter.value === dayIndex;
             dayOfWeekHTML += `
-                <div class="call-day-bar" data-day="${dayIndex}" title="${daysOfWeek[dayIndex]} • ${count}" style="height: ${height}px; background: ${active ? 'var(--accent-color)' : 'var(--success-color)'}; border-radius: 4px; cursor: pointer;"></div>
+                <div class="call-day-bar" data-day="${dayIndex}" title="${daysOfWeek[dayIndex]} • ${count}" style="height: ${height}px; background: ${active ? 'var(--accent-color, #d97706)' : 'var(--success-color, #16a34a)'}; border-radius: 4px; cursor: pointer;"></div>
             `;
         });
         dayOfWeekHTML += '</div>';

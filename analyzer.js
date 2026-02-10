@@ -5448,23 +5448,23 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     const overviewHTML = `
         <div class="summary-grid">
             <div class="summary-card highlight">
-                <h3>Total Records</h3>
+                <h3>Total Events</h3>
                 <div class="summary-value">${analysis.totalRecords}</div>
             </div>
             <div class="summary-card">
-                <h3>Incoming</h3>
+                <h3>Incoming Events</h3>
                 <div class="summary-value" style="color: var(--success-color);">${analysis.incoming}</div>
                 <div class="summary-label">${analysis.totalRecords > 0 ? ((analysis.incoming / analysis.totalRecords) * 100).toFixed(1) : 0}%</div>
             </div>
             <div class="summary-card">
-                <h3>Outgoing</h3>
+                <h3>Outgoing Events</h3>
                 <div class="summary-value" style="color: var(--info-color);">${analysis.outgoing}</div>
                 <div class="summary-label">${analysis.totalRecords > 0 ? ((analysis.outgoing / analysis.totalRecords) * 100).toFixed(1) : 0}%</div>
             </div>
             <div class="summary-card">
                 <h3>Total Duration</h3>
-                <div class="summary-value">${formatDurationFromSeconds(analysis.totalDuration)}</div>
-                <div class="summary-label">Average: ${formatDurationFromSeconds(Math.round(analysis.averageDuration))}</div>
+                <div class="summary-value">${mode === 'calls' ? formatDurationFromSeconds(analysis.totalDuration) : '—'}</div>
+                <div class="summary-label">Average: ${mode === 'calls' ? formatDurationFromSeconds(Math.round(analysis.averageDuration)) : '—'}</div>
             </div>
         </div>
     `;
@@ -5637,31 +5637,33 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         'call-daily-trends'
     ));
 
-    // Call Duration Trends Over Time
-    const durationTrends = Array.from(analysis.durationByDay.entries())
-        .sort((a, b) => new Date(a[0]) - new Date(b[0]));
+    // Call Duration Trends Over Time (Calls only)
+    if (mode === 'calls') {
+        const durationTrends = Array.from(analysis.durationByDay.entries())
+            .sort((a, b) => new Date(a[0]) - new Date(b[0]));
 
-    let durationTrendsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    durationTrendsHTML += '<thead><tr><th>Date</th><th>Calls</th><th>Avg Duration</th><th>Total Duration</th></tr></thead><tbody>';
+        let durationTrendsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+        durationTrendsHTML += '<thead><tr><th>Date</th><th>Calls</th><th>Avg Duration</th><th>Total Duration</th></tr></thead><tbody>';
 
-    durationTrends.forEach(([date, data]) => {
-        const avgDuration = data.count > 0 ? Math.round(data.totalDuration / data.count) : 0;
-        durationTrendsHTML += `
-            <tr>
-                <td style="padding: 8px;">${date}</td>
-                <td style="padding: 8px; text-align: right;">${data.count}</td>
-                <td style="padding: 8px; text-align: right; font-weight: 600;">${formatDurationFromSeconds(avgDuration)}</td>
-                <td style="padding: 8px; text-align: right;">${formatDurationFromSeconds(data.totalDuration)}</td>
-            </tr>
-        `;
-    });
-    durationTrendsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection(
-        '📈 Call Duration Trends',
-        toggleHTML + timeFilterHTML + durationTrendsHTML,
-        expandedState.get('call-duration-trends') ?? false,
-        'call-duration-trends'
-    ));
+        durationTrends.forEach(([date, data]) => {
+            const avgDuration = data.count > 0 ? Math.round(data.totalDuration / data.count) : 0;
+            durationTrendsHTML += `
+                <tr>
+                    <td style="padding: 8px;">${date}</td>
+                    <td style="padding: 8px; text-align: right;">${data.count}</td>
+                    <td style="padding: 8px; text-align: right; font-weight: 600;">${formatDurationFromSeconds(avgDuration)}</td>
+                    <td style="padding: 8px; text-align: right;">${formatDurationFromSeconds(data.totalDuration)}</td>
+                </tr>
+            `;
+        });
+        durationTrendsHTML += '</tbody></table></div>';
+        sections.push(createCollapsibleSection(
+            '📈 Call Duration Trends',
+            toggleHTML + timeFilterHTML + durationTrendsHTML,
+            expandedState.get('call-duration-trends') ?? false,
+            'call-duration-trends'
+        ));
+    }
 
     // IMEI Analysis
     if (analysis.imeiData.size > 0) {
@@ -5715,42 +5717,44 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         ));
     }
 
-    // Average Call Duration by Contact (Enhanced)
-    const contactsByAvgDuration = Array.from(analysis.contacts.entries())
-        .map(([number, data]) => ({
-            number,
-            ...data,
-            avgDuration: data.count > 0 ? Math.round(data.totalDuration / data.count) : 0
-        }))
-        .sort((a, b) => b.avgDuration - a.avgDuration)
-        .slice(0, 20);
+    // Average Call Duration by Contact (Calls only)
+    if (mode === 'calls') {
+        const contactsByAvgDuration = Array.from(analysis.contacts.entries())
+            .map(([number, data]) => ({
+                number,
+                ...data,
+                avgDuration: data.count > 0 ? Math.round(data.totalDuration / data.count) : 0
+            }))
+            .sort((a, b) => b.avgDuration - a.avgDuration)
+            .slice(0, 20);
 
-    let avgDurationHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    avgDurationHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
-    avgDurationHTML += '<th style="padding: 12px; text-align: left;">Contact</th>';
-    avgDurationHTML += '<th style="padding: 12px; text-align: left;">Name</th>';
-    avgDurationHTML += '<th style="padding: 12px; text-align: right;">Calls</th>';
-    avgDurationHTML += '<th style="padding: 12px; text-align: right;">Avg Duration</th>';
-    avgDurationHTML += '</tr></thead><tbody>';
+        let avgDurationHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+        avgDurationHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
+        avgDurationHTML += '<th style="padding: 12px; text-align: left;">Contact</th>';
+        avgDurationHTML += '<th style="padding: 12px; text-align: left;">Name</th>';
+        avgDurationHTML += '<th style="padding: 12px; text-align: right;">Calls</th>';
+        avgDurationHTML += '<th style="padding: 12px; text-align: right;">Avg Duration</th>';
+        avgDurationHTML += '</tr></thead><tbody>';
 
-    contactsByAvgDuration.forEach(contact => {
-        avgDurationHTML += `
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <td style="padding: 10px; font-family: monospace;">${contact.number}</td>
-                <td style="padding: 10px;">${contact.name}</td>
-                <td style="padding: 10px; text-align: right;">${contact.count}</td>
-                <td style="padding: 10px; text-align: right; font-weight: 600;">${formatDurationFromSeconds(contact.avgDuration)}</td>
-            </tr>
-        `;
-    });
+        contactsByAvgDuration.forEach(contact => {
+            avgDurationHTML += `
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 10px; font-family: monospace;">${contact.number}</td>
+                    <td style="padding: 10px;">${contact.name}</td>
+                    <td style="padding: 10px; text-align: right;">${contact.count}</td>
+                    <td style="padding: 10px; text-align: right; font-weight: 600;">${formatDurationFromSeconds(contact.avgDuration)}</td>
+                </tr>
+            `;
+        });
 
-    avgDurationHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection(
-        '⏱️ Average Duration by Contact',
-        toggleHTML + avgDurationHTML,
-        expandedState.get('call-avg-duration') ?? false,
-        'call-avg-duration'
-    ));
+        avgDurationHTML += '</tbody></table></div>';
+        sections.push(createCollapsibleSection(
+            '⏱️ Average Duration by Contact',
+            toggleHTML + avgDurationHTML,
+            expandedState.get('call-avg-duration') ?? false,
+            'call-avg-duration'
+        ));
+    }
 
     // Call Records Table
     let recordsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';

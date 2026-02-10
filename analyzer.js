@@ -4986,11 +4986,13 @@ function getCallAnalysisExpandedState() {
 }
 
 function buildCallAnalysis(data) {
+    const keptData = data.filter(shouldKeepCallAnalysisRecord);
+
     // Group by content type first
     const byContentType = new Map();
     const contentTypes = new Set();
 
-    data.forEach(call => {
+    keptData.forEach(call => {
         const contentType = call['Content Type'] || 'Unknown';
         contentTypes.add(contentType);
         if (!byContentType.has(contentType)) {
@@ -5000,8 +5002,8 @@ function buildCallAnalysis(data) {
     });
 
     const analysis = {
-        totalRecords: data.length,
-        records: data,
+        totalRecords: keptData.length,
+        records: keptData,
         contentTypes: contentTypes,
         byContentType: byContentType,
         incoming: 0,
@@ -5024,7 +5026,28 @@ function buildCallAnalysis(data) {
         imsiData: new Map()
     };
 
+    // Always preserve location evidence on the map, even for filtered service codes.
     data.forEach(call => {
+        if (call['First Tower Latitude'] && call['First Tower Longitude']) {
+            const lat = parseFloat(call['First Tower Latitude']);
+            const lon = parseFloat(call['First Tower Longitude']);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                analysis.locations.push({
+                    lat,
+                    lon,
+                    tower: call['First Tower'],
+                    call: call
+                });
+                const locKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+                if (!analysis.locationIndex.has(locKey)) {
+                    analysis.locationIndex.set(locKey, []);
+                }
+                analysis.locationIndex.get(locKey).push(call);
+            }
+        }
+    });
+
+    keptData.forEach(call => {
         callAnalysisSequence += 1;
         // Direction
         const direction = (call['Direction'] || '').toLowerCase();
@@ -5107,25 +5130,6 @@ function buildCallAnalysis(data) {
             dayData.totalDuration += duration;
         }
 
-        // Location data
-        if (call['First Tower Latitude'] && call['First Tower Longitude']) {
-            const lat = parseFloat(call['First Tower Latitude']);
-            const lon = parseFloat(call['First Tower Longitude']);
-            if (Number.isFinite(lat) && Number.isFinite(lon)) {
-                analysis.locations.push({
-                    lat,
-                    lon,
-                    tower: call['First Tower'],
-                    call: call
-                });
-                const locKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
-                if (!analysis.locationIndex.has(locKey)) {
-                    analysis.locationIndex.set(locKey, []);
-                }
-                analysis.locationIndex.get(locKey).push(call);
-            }
-        }
-
         // IMEI analysis
         const imei = call['IMEI'];
         if (imei) {
@@ -5173,6 +5177,22 @@ function isCallRecord(row) {
 function isSmsRecord(row) {
     const type = String(row['Content Type'] || '').toLowerCase();
     return type.includes('sms') || type.includes('mms');
+}
+
+function isLikelyPhoneNumber(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    const digits = raw.replace(/\D/g, '');
+    if (raw.startsWith('+') && digits.length >= 10 && digits.length <= 15) return true;
+    if (digits.length === 10) return true;
+    if (digits.length === 11 && digits.startsWith('1')) return true;
+    return false;
+}
+
+function shouldKeepCallAnalysisRecord(call) {
+    const assoc = call['Associate Number'];
+    if (!assoc) return true;
+    return isLikelyPhoneNumber(assoc);
 }
 
 function applyCallAnalysisTimeFilter(records) {

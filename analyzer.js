@@ -4918,12 +4918,16 @@ function analyzeCallData() {
 
         // Location data
         if (call['First Tower Latitude'] && call['First Tower Longitude']) {
-            analysis.locations.push({
-                lat: parseFloat(call['First Tower Latitude']),
-                lon: parseFloat(call['First Tower Longitude']),
-                tower: call['First Tower'],
-                call: call
-            });
+            const lat = parseFloat(call['First Tower Latitude']);
+            const lon = parseFloat(call['First Tower Longitude']);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                analysis.locations.push({
+                    lat,
+                    lon,
+                    tower: call['First Tower'],
+                    call: call
+                });
+            }
         }
 
         // IMEI analysis
@@ -5277,6 +5281,11 @@ function initializeCallLocationMap(locations) {
     const mapContainer = document.getElementById('callLocationMap');
     if (!mapContainer || locations.length === 0) return;
 
+    const validLocations = locations.filter(loc =>
+        Number.isFinite(loc.lat) && Number.isFinite(loc.lon)
+    );
+    if (validLocations.length === 0) return;
+
     if (window.callLocationMap) {
         window.callLocationMap.remove();
         window.callLocationMap = null;
@@ -5286,8 +5295,8 @@ function initializeCallLocationMap(locations) {
     mapContainer.innerHTML = '';
 
     // Calculate center point
-    const avgLat = locations.reduce((sum, loc) => sum + loc.lat, 0) / locations.length;
-    const avgLon = locations.reduce((sum, loc) => sum + loc.lon, 0) / locations.length;
+    const avgLat = validLocations.reduce((sum, loc) => sum + loc.lat, 0) / validLocations.length;
+    const avgLon = validLocations.reduce((sum, loc) => sum + loc.lon, 0) / validLocations.length;
 
     // Create map
     const map = L.map('callLocationMap').setView([avgLat, avgLon], 10);
@@ -5301,7 +5310,7 @@ function initializeCallLocationMap(locations) {
 
     // Add markers with clustering
     const locationCounts = new Map();
-    locations.forEach(loc => {
+    validLocations.forEach(loc => {
         const key = `${loc.lat.toFixed(4)},${loc.lon.toFixed(4)}`;
         locationCounts.set(key, (locationCounts.get(key) || 0) + 1);
     });

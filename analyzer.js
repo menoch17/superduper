@@ -2575,7 +2575,19 @@ function getProtocolDescription(protocol) {
         'ldap': 'Lightweight Directory Access Protocol - Directory services',
         'smb': 'Server Message Block - Windows file/printer sharing',
         'ipsec': 'Internet Protocol Security - VPN and encrypted IP communications',
-        'gre': 'Generic Routing Encapsulation - VPN tunneling protocol'
+        'gre': 'Generic Routing Encapsulation - VPN tunneling protocol',
+        'ipv6-icmp': 'ICMPv6 - Internet Control Message Protocol for IPv6 networks',
+        'domain': 'Domain Name System (DNS) - Name resolution service',
+        'imaps': 'IMAP over SSL/TLS - Encrypted email access and synchronization',
+        'hpvirtgrp': 'HP Virtual Room Group - HP device collaboration protocol',
+        'xmpp-client': 'XMPP Client - Jabber instant messaging protocol',
+        'ifsf-hb-port': 'IFSF Heartbeat - Forecourt/fuel station communication protocol',
+        'plethora': 'Plethora - Network management and monitoring protocol',
+        'liberty-lm': 'Liberty License Manager - Software license management protocol',
+        'seclayer-tcp': 'Security Layer TCP - Secure communications protocol',
+        'vulture': 'Vulture - Security and load balancing protocol',
+        'insitu-conf': 'InSitu Conference - Audio/video conferencing protocol',
+        'google': 'Google Services - Proprietary Google communication protocol'
     };
 
     const protoLower = protocol.toLowerCase();

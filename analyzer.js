@@ -5502,13 +5502,18 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 20);
 
-    let contactsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-    contactsHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
-    contactsHTML += '<th style="padding: 12px; text-align: left;">Contact</th>';
-    contactsHTML += '<th style="padding: 12px; text-align: left;">Name</th>';
-    contactsHTML += '<th style="padding: 12px; text-align: left;">Carrier</th>';
-    contactsHTML += '<th style="padding: 12px; text-align: right;">Events</th>';
-    contactsHTML += '<th style="padding: 12px; text-align: right;">Total Duration</th>';
+    let contactsHTML = `
+        <div style="margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">
+            Fields: <strong>Contact</strong>, <strong>Name</strong>, <strong>Carrier</strong>, <strong>Events</strong>, <strong>Total Duration</strong>
+        </div>
+    `;
+    contactsHTML += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+    contactsHTML += '<thead><tr style="background: var(--primary-color); color: #fff;">';
+    contactsHTML += '<th scope="col" style="padding: 12px; text-align: left; font-weight: 700;">Contact</th>';
+    contactsHTML += '<th scope="col" style="padding: 12px; text-align: left; font-weight: 700;">Name</th>';
+    contactsHTML += '<th scope="col" style="padding: 12px; text-align: left; font-weight: 700;">Carrier</th>';
+    contactsHTML += '<th scope="col" style="padding: 12px; text-align: right; font-weight: 700;">Events</th>';
+    contactsHTML += '<th scope="col" style="padding: 12px; text-align: right; font-weight: 700;">Total Duration</th>';
     contactsHTML += '</tr></thead><tbody>';
 
     topContacts.forEach(([number, data]) => {

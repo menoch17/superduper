@@ -1020,6 +1020,153 @@ function displayResults(call, analyzer) {
     }, 100);
 }
 
+function decodeHtmlEntities(value) {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = value || '';
+    return textarea.value;
+}
+
+function openCdcAnalysisModal(call) {
+    const raw = call?.['CDC Messages'];
+    if (!raw || !String(raw).trim()) {
+        alert('No CDC Messages available for this record.');
+        return;
+    }
+
+    let modal = document.getElementById('cdcAnalysisModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'cdcAnalysisModal';
+        modal.className = 'settings-modal';
+        document.body.appendChild(modal);
+    }
+
+    const mapId = `cdcModalMap-${Date.now()}`;
+    modal.innerHTML = `
+        <div class="settings-content" style="width: min(1200px, 94vw); max-height: 92vh; overflow: auto;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <h3 style="margin: 0;">CDC Analysis</h3>
+                <button class="btn-secondary" onclick="closeCdcAnalysisModal()">Close</button>
+            </div>
+            <div id="cdcModalResults"></div>
+        </div>
+    `;
+    modal.style.display = 'flex';
+
+    const cdcText = decodeHtmlEntities(String(raw)).replace(/&#x0D;/gi, '\n');
+    const analyzer = new CDCAnalyzer(cdcText);
+    analyzer.parse();
+    const firstCall = analyzer.calls.values().next().value;
+    if (!firstCall) {
+        document.getElementById('cdcModalResults').innerHTML = '<div>No recognizable CDC messages found.</div>';
+        return;
+    }
+
+    renderCdcResultsInModal(firstCall, analyzer, mapId);
+}
+
+function closeCdcAnalysisModal() {
+    const modal = document.getElementById('cdcAnalysisModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function renderCdcResultsInModal(call, analyzer, mapId) {
+    const container = document.getElementById('cdcModalResults');
+    if (!container) return;
+
+    const summaryHTML = `
+        <div class="summary-grid">
+            <div class="summary-card highlight">
+                <h3>Call Overview</h3>
+                <div class="info-row"><span class="info-label">Type</span><span class="info-value"><span class="badge badge-info">${call.callType}</span></span></div>
+                <div class="info-row"><span class="info-label">Direction</span><span class="info-value"><span class="badge ${call.callDirection === 'Incoming' ? 'badge-success' : 'badge-warning'}">${call.callDirection || 'Unknown'}</span></span></div>
+                <div class="info-row"><span class="info-label">Status</span><span class="info-value"><span class="badge badge-success">${call.callStatus || 'Unknown'}</span></span></div>
+                <div class="info-row"><span class="info-label">Duration</span><span class="info-value">${analyzer.formatDuration(call.duration)}</span></div>
+                <div class="info-row"><span class="info-label">Case ID</span><span class="info-value">${call.caseId || 'N/A'}</span></div>
+            </div>
+        </div>`;
+
+    const sections = [];
+    sections.push(createCollapsibleSection('Call Overview', summaryHTML, true, `modal-overview`));
+
+    if (call.messages.length > 0) {
+        const flowHTML = `
+            <div class="mermaid">
+                sequenceDiagram
+                    autonumber
+                    participant T as Target Device
+                    participant C as Carrier Network
+                    participant P as Peer
+                    ${generateFlowMarkup(call, analyzer, call.messages.length ? analyzer.parseTimestamp(call.messages[0].timestamp) : null)}
+            </div>`;
+        sections.push(createCollapsibleSection('Call Flow Diagram', flowHTML, true, `modal-callFlow`));
+    }
+
+    if (call.locations.length > 0) {
+        const locationHTML = `
+            <div id="${mapId}" style="height: 360px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 16px;"></div>
+        `;
+        sections.push(createCollapsibleSection('Cell Tower Mapping', locationHTML, true, `modal-mapping`));
+    }
+
+    if (call.smsData.length > 0) {
+        const smsHTML = `
+            <div class="device-section">
+                <h3>SMS/MMS Messages (${call.smsData.length})</h3>
+                <div class="sms-list">
+                    ${call.smsData.map(sms => `
+                        <div class="timeline-event">
+                            <div class="timeline-time">${analyzer.formatTimestamp(sms.timestamp)}</div>
+                            <div class="timeline-title">${sms.direction}: ${sms.from || 'Target'} -> ${sms.to || 'Peer'}</div>
+                            <div class="timeline-details" style="font-family: inherit; color: var(--text-color); font-size: 1rem;">${sms.content}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+        sections.push(createCollapsibleSection('SMS/MMS Messages', smsHTML, false, `modal-sms`));
+    }
+
+    const techHTML = `
+        <div class="timeline-section">
+            <h3>Technical Message Timeline</h3>
+            <div class="timeline-list">
+                ${call.messages.map(msg => `
+                    <div class="timeline-event">
+                        <div class="timeline-time">${analyzer.formatTimestamp(msg.timestamp)}</div>
+                        <div class="timeline-title">${msg.type}</div>
+                        <div class="timeline-details">${msg.data.sipMessages?.[0]?.content || JSON.stringify(msg.data, null, 2)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+    sections.push(createCollapsibleSection('Technical Message Timeline', techHTML, true, `modal-tech`));
+
+    const rawHTML = `
+        <div class="technical-section">
+            <h3>Raw CDC Records</h3>
+            <div class="raw-export">
+                ${call.messages.map(msg => `
+                   <div class="raw-record">
+                       <pre>${msg.rawBlock}</pre>
+                   </div>
+                `).join('<hr>')}
+            </div>
+        </div>`;
+    sections.push(createCollapsibleSection('Raw CDC Records', rawHTML, false, `modal-raw`));
+
+    container.innerHTML = sections.join('');
+    setupCollapsibles();
+
+    if (call.locations.length > 0) {
+        setTimeout(() => {
+            initMapOnElement(call.locations, mapId);
+        }, 100);
+    }
+    if (typeof mermaid !== 'undefined') {
+        try { mermaid.init(); } catch (e) { console.error("Mermaid init failed", e); }
+    }
+}
+
 function createCollapsibleSection(title, content, isOpen = false, idSuffix = '') {
     const key = idSuffix || title.toLowerCase().replace(/[^\w]+/g, '-');
     const arrow = isOpen ? '▼' : '▶';
@@ -1287,6 +1434,36 @@ function initMap(locations) {
             map.setView([baseLat, baseLng], 13);
         }
     } catch (e) { console.error("Map init failed", e); }
+}
+
+function initMapOnElement(locations, mapId) {
+    if (!locations || locations.length === 0 || typeof L === 'undefined') return null;
+    const mapEl = document.getElementById(mapId);
+    if (!mapEl) return null;
+    try {
+        const map = L.map(mapEl, { scrollWheelZoom: false });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        const markers = [];
+        locations.forEach(loc => {
+            const lat = loc.parsed?.lat || loc.lat;
+            const lng = loc.parsed?.lon || loc.lon;
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            const marker = L.marker([lat, lng]).addTo(map);
+            markers.push(marker);
+        });
+
+        if (markers.length > 0) {
+            const group = new L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.5));
+        }
+        return map;
+    } catch (e) {
+        console.error("Modal map init failed", e);
+        return null;
+    }
 }
 
 function createSectorLayer(tower, lat, lng) {
@@ -5166,6 +5343,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     resultsDiv.style.display = 'block';
     resultsDiv.className = 'results-container active';
     window.lastCallLocations = analysis.locations;
+    window.currentCallAnalysisRecords = analysis.records || [];
     window.callAnalysisMode = mode;
     const toggleHTML = renderCallAnalysisToggle(mode);
 
@@ -5517,11 +5695,11 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     let recordsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
     recordsHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
     recordsHTML += '<th>Date/Time</th><th>Direction</th><th>Contact</th><th>Duration</th><th>Carrier</th></tr></thead><tbody>';
-    (analysis.records || []).slice(0, 100).forEach(call => {
+    (analysis.records || []).slice(0, 100).forEach((call, idx) => {
         const direction = call['Direction'] || '';
         const directionIcon = direction.toLowerCase() === 'incoming' ? '📞 ↓' : '📞 ↑';
         recordsHTML += `
-            <tr style="border-bottom: 1px solid var(--border-color);">
+            <tr class="call-record-row" data-index="${idx}" style="border-bottom: 1px solid var(--border-color); cursor: pointer;">
                 <td style="padding: 8px;">${call['Start Date/Time'] || call['Start Time']}</td>
                 <td style="padding: 8px;">${directionIcon} ${direction}</td>
                 <td style="padding: 8px; font-family: monospace;">${call['Associate Number']}</td>
@@ -5542,6 +5720,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
 
     resultsDiv.innerHTML = sections.join('');
     setupCollapsibles();
+    setupCallRecordRowHandlers();
 
     // Map init happens on expand to ensure the container is in the DOM
 
@@ -5550,6 +5729,20 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     if (contactSearchContainer && analysis.contacts.size > 0) {
         contactSearchContainer.style.display = 'flex';
     }
+}
+
+function setupCallRecordRowHandlers() {
+    const container = document.getElementById('callResults');
+    if (!container || container.dataset.callRecordHandler) return;
+    container.dataset.callRecordHandler = 'true';
+    container.addEventListener('click', (e) => {
+        const row = e.target.closest('.call-record-row');
+        if (!row) return;
+        const index = Number(row.dataset.index);
+        const record = (window.currentCallAnalysisRecords || [])[index];
+        if (!record) return;
+        openCdcAnalysisModal(record);
+    });
 }
 
 function initializeCallLocationMap(locations, attempt = 0) {
@@ -5725,6 +5918,7 @@ window.clearCallAnalysis = clearCallAnalysis;
 window.filterCallAnalysisByTarget = filterCallAnalysisByTarget;
 window.searchCallContacts = searchCallContacts;
 window.setCallAnalysisMode = setCallAnalysisMode;
+window.closeCdcAnalysisModal = closeCdcAnalysisModal;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

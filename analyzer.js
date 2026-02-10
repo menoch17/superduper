@@ -657,6 +657,7 @@ let leafletMap = null;
 let sectorLayers = [];
 let callMapSectorLayers = [];
 let towerDatabaseBySiteId = null;
+let callAnalysisTimeFilter = null;
 
 const SECTOR_DEFAULT_BEAM_WIDTH = 65;
 const SECTOR_DEFAULT_RADIUS_METERS = 2000;
@@ -2628,6 +2629,8 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     // Render all sections
     resultsDiv.innerHTML = sections.join('');
     setupCollapsibles();
+    setupContactTimelineHandlers(analysis);
+    setupCallAnalysisChartHandlers();
     if (!reverseDnsStats.attempted) {
         setTimeout(() => resolveReverseDNS(), 0);
     }
@@ -4888,12 +4891,15 @@ function analyzeCallData() {
     const callsOnly = callAnalysisData.filter(row => isCallRecord(row));
     const smsOnly = callAnalysisData.filter(row => isSmsRecord(row));
 
-    window.callAnalysisViews = {
-        calls: buildCallAnalysis(callsOnly),
-        sms: buildCallAnalysis(smsOnly)
-    };
+    window.callAnalysisBaseRecords = { calls: callsOnly, sms: smsOnly };
 
     const mode = window.callAnalysisMode || 'calls';
+    const base = window.callAnalysisBaseRecords[mode] || [];
+    const filtered = applyCallAnalysisTimeFilter(base);
+    window.callAnalysisViews = {
+        calls: buildCallAnalysis(mode === 'calls' ? filtered : applyCallAnalysisTimeFilter(callsOnly)),
+        sms: buildCallAnalysis(mode === 'sms' ? filtered : applyCallAnalysisTimeFilter(smsOnly))
+    };
     displayCallAnalysis(window.callAnalysisViews[mode], mode);
 }
 
@@ -4995,6 +5001,10 @@ function buildCallAnalysis(data) {
         outgoing: 0,
         totalDuration: 0,
         contacts: new Map(),
+        contactEvents: new Map(),
+        smsThreads: new Map(),
+        locationPairs: new Map(),
+        locationIndex: new Map(),
         carriers: new Map(),
         hourlyDistribution: new Array(24).fill(0),
         dailyDistribution: new Map(),
@@ -5028,19 +5038,38 @@ function buildCallAnalysis(data) {
         }
 
         // Contacts
-        const contact = call['Associate Number'];
+        const contact = call['Associate Number'] || call['Caller'] || call['Called'] || 'Unknown';
         if (contact) {
             if (!analysis.contacts.has(contact)) {
                 analysis.contacts.set(contact, {
                     count: 0,
                     totalDuration: 0,
                     name: call['Associate Subscriber Name'] || 'Unknown',
-                    carrier: call['Associate Provider'] || 'Unknown'
+                    carrier: call['Associate Provider'] || 'Unknown',
+                    firstSeen: null,
+                    lastSeen: null,
+                    carriers: new Set(),
+                    imeis: new Set(),
+                    imsis: new Set()
                 });
             }
             const contactData = analysis.contacts.get(contact);
             contactData.count++;
             contactData.totalDuration += duration;
+            if (contactData.carrier) contactData.carriers.add(contactData.carrier);
+            const ts = getCallTimestamp(call);
+            if (ts) {
+                if (!contactData.firstSeen || ts < contactData.firstSeen) contactData.firstSeen = ts;
+                if (!contactData.lastSeen || ts > contactData.lastSeen) contactData.lastSeen = ts;
+                if (!analysis.contactEvents.has(contact)) analysis.contactEvents.set(contact, []);
+                analysis.contactEvents.get(contact).push({
+                    timestamp: ts,
+                    direction,
+                    contentType: call['Content Type'] || '',
+                    duration,
+                    record: call
+                });
+            }
         }
 
         // Carriers
@@ -5082,6 +5111,11 @@ function buildCallAnalysis(data) {
                     tower: call['First Tower'],
                     call: call
                 });
+                const locKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+                if (!analysis.locationIndex.has(locKey)) {
+                    analysis.locationIndex.set(locKey, []);
+                }
+                analysis.locationIndex.get(locKey).push(call);
             }
         }
 
@@ -5094,6 +5128,7 @@ function buildCallAnalysis(data) {
             const imeiData = analysis.imeiData.get(imei);
             imeiData.count++;
             if (contact) imeiData.numbers.add(contact);
+            if (analysis.contacts.has(contact)) analysis.contacts.get(contact).imeis.add(imei);
         }
 
         // IMSI analysis
@@ -5103,6 +5138,31 @@ function buildCallAnalysis(data) {
                 analysis.imsiData.set(imsi, { count: 0, hlr: call['HLR'] || 'Unknown' });
             }
             analysis.imsiData.get(imsi).count++;
+            if (analysis.contacts.has(contact)) analysis.contacts.get(contact).imsis.add(imsi);
+        }
+
+        const firstTower = call['First Tower'];
+        const lastTower = call['Last Tower'];
+        if (firstTower && lastTower) {
+            const pairKey = `${firstTower} → ${lastTower}`;
+            analysis.locationPairs.set(pairKey, (analysis.locationPairs.get(pairKey) || 0) + 1);
+        }
+
+        if (isSmsRecord(call)) {
+            const threadKey = contact;
+            if (!analysis.smsThreads.has(threadKey)) {
+                analysis.smsThreads.set(threadKey, { count: 0, last: null, messages: [] });
+            }
+            const thread = analysis.smsThreads.get(threadKey);
+            thread.count++;
+            const msgTime = getCallTimestamp(call);
+            if (msgTime && (!thread.last || msgTime > thread.last)) thread.last = msgTime;
+            const text = call['Text Message'] || call['Transcript'] || call['Comments'] || call['Data'] || '';
+            thread.messages.push({
+                timestamp: msgTime,
+                direction: direction || call['Direction'] || '',
+                text
+            });
         }
     });
 
@@ -5128,6 +5188,28 @@ function isSmsRecord(row) {
     return type.includes('sms') || type.includes('mms');
 }
 
+function applyCallAnalysisTimeFilter(records) {
+    if (!callAnalysisTimeFilter) return records;
+    const { type, value } = callAnalysisTimeFilter;
+    return records.filter(record => {
+        const ts = getCallTimestamp(record);
+        if (!ts) return false;
+        if (type === 'hour') return ts.getHours() === value;
+        if (type === 'day') return ts.getDay() === value;
+        return true;
+    });
+}
+
+function setCallAnalysisTimeFilter(type, value) {
+    callAnalysisTimeFilter = { type, value };
+    analyzeCallData();
+}
+
+function clearCallAnalysisTimeFilter() {
+    callAnalysisTimeFilter = null;
+    analyzeCallData();
+}
+
 function setCallAnalysisMode(mode) {
     window.callAnalysisMode = mode;
     const analysis = window.callAnalysisViews?.[mode];
@@ -5146,6 +5228,176 @@ function renderCallAnalysisToggle(mode) {
             <button class="btn-secondary" style="${baseStyle} ${isSms ? activeStyle : inactiveStyle}" aria-pressed="${isSms}" onclick="setCallAnalysisMode('sms')">SMS/MMS</button>
         </div>
     `;
+}
+
+function renderTimeFilterChip() {
+    if (!callAnalysisTimeFilter) return '';
+    const { type, value } = callAnalysisTimeFilter;
+    const label = type === 'hour'
+        ? `Hour: ${String(value).padStart(2, '0')}:00`
+        : `Day: ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][value] || value}`;
+    return `
+        <div style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <span class="badge badge-info" style="font-size: 0.7rem;">${label}</span>
+            <button class="btn-secondary" style="padding: 2px 8px; font-size: 0.7rem;" onclick="clearCallAnalysisTimeFilter()">Clear</button>
+        </div>
+    `;
+}
+
+function formatCallDate(ts) {
+    if (!ts) return '—';
+    try { return ts.toLocaleString(); } catch { return String(ts); }
+}
+
+function renderContactCards(analysis) {
+    const entries = Array.from(analysis.contacts.entries())
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 12);
+    if (!entries.length) return '<div>No contacts available.</div>';
+    let html = '<div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">';
+    entries.forEach(([number, data]) => {
+        const carriers = Array.from(data.carriers || []).join(', ') || data.carrier || 'Unknown';
+        html += `
+            <div class="summary-card">
+                <div style="font-family: monospace; font-weight: 600; margin-bottom: 6px;">${number}</div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem;">${data.name || 'Unknown'}</div>
+                <div style="margin-top: 8px; font-size: 0.85rem;">Calls: <strong>${data.count}</strong></div>
+                <div style="font-size: 0.85rem;">Total Duration: <strong>${formatDurationFromSeconds(data.totalDuration)}</strong></div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px;">First: ${formatCallDate(data.firstSeen)}</div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">Last: ${formatCallDate(data.lastSeen)}</div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px;">Carrier: ${carriers}</div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">IMEI: ${Array.from(data.imeis || []).slice(0, 2).join(', ') || '—'}</div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">IMSI: ${Array.from(data.imsis || []).slice(0, 2).join(', ') || '—'}</div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    return html;
+}
+
+function renderContactTimeline(analysis) {
+    const contacts = Array.from(analysis.contactEvents.keys());
+    if (!contacts.length) return '<div>No contact activity available.</div>';
+    const options = contacts
+        .sort((a, b) => a.localeCompare(b))
+        .map(c => `<option value="${c}">${c}</option>`)
+        .join('');
+    return `
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <span style="color: var(--text-secondary);">Contact:</span>
+            <select id="callContactTimelineSelect" class="btn-secondary" style="padding: 6px 10px;">${options}</select>
+        </div>
+        <div id="callContactTimelineList"></div>
+    `;
+}
+
+function setupContactTimelineHandlers(analysis) {
+    const select = document.getElementById('callContactTimelineSelect');
+    const list = document.getElementById('callContactTimelineList');
+    if (!select || !list) return;
+    const render = (contact) => {
+        const events = analysis.contactEvents.get(contact) || [];
+        const sorted = events.slice().sort((a, b) => a.timestamp - b.timestamp);
+        if (!sorted.length) {
+            list.innerHTML = '<div>No events for this contact.</div>';
+            return;
+        }
+        list.innerHTML = sorted.map(ev => {
+            const time = formatCallDate(ev.timestamp);
+            const dir = ev.direction || '';
+            const type = ev.contentType || '';
+            const dur = ev.duration ? formatDurationFromSeconds(ev.duration) : '';
+            return `
+                <div class="timeline-event">
+                    <div class="timeline-time">${time}</div>
+                    <div class="timeline-title">${type || 'Record'} ${dir ? `(${dir})` : ''}</div>
+                    <div class="timeline-details" style="font-size: 0.9rem;">${dur ? `Duration: ${dur}` : ''}</div>
+                </div>
+            `;
+        }).join('');
+    };
+    render(select.value);
+    select.addEventListener('change', () => render(select.value));
+}
+
+function renderSmsThreads(analysis) {
+    const threads = Array.from(analysis.smsThreads.entries())
+        .sort((a, b) => (b[1].count - a[1].count))
+        .slice(0, 20);
+    if (!threads.length) return '<div>No SMS/MMS threads available.</div>';
+    return threads.map(([contact, thread]) => {
+        const last = thread.last ? formatCallDate(thread.last) : '—';
+        const messages = thread.messages
+            .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+            .map(msg => `
+                <div class="timeline-event">
+                    <div class="timeline-time">${formatCallDate(msg.timestamp)}</div>
+                    <div class="timeline-title">${msg.direction || 'Message'}</div>
+                    <div class="timeline-details" style="font-size: 0.9rem;">${msg.text || ''}</div>
+                </div>
+            `).join('');
+        return `
+            <details style="margin-bottom: 10px;">
+                <summary style="cursor: pointer; font-weight: 600;">${contact} • ${thread.count} msgs • Last: ${last}</summary>
+                <div style="margin-top: 8px;">${messages || '<div>No message text.</div>'}</div>
+            </details>
+        `;
+    }).join('');
+}
+
+function renderLocationPairs(analysis) {
+    const pairs = Array.from(analysis.locationPairs.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+    if (!pairs.length) return '<div>No location pairs available.</div>';
+    let html = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+    html += '<thead><tr><th>First Tower → Last Tower</th><th style="text-align: right;">Count</th></tr></thead><tbody>';
+    pairs.forEach(([pair, count]) => {
+        html += `<tr><td style="padding: 8px;">${pair}</td><td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+    return html;
+}
+
+function setupCallAnalysisChartHandlers() {
+    const container = document.getElementById('callResults');
+    if (!container || container.dataset.callChartHandler) return;
+    container.dataset.callChartHandler = 'true';
+    container.addEventListener('click', (e) => {
+        const hourBar = e.target.closest('.call-hour-bar');
+        if (hourBar) {
+            const hour = Number(hourBar.dataset.hour);
+            if (Number.isFinite(hour)) setCallAnalysisTimeFilter('hour', hour);
+            return;
+        }
+        const dayBar = e.target.closest('.call-day-bar');
+        if (dayBar) {
+            const day = Number(dayBar.dataset.day);
+            if (Number.isFinite(day)) setCallAnalysisTimeFilter('day', day);
+        }
+    });
+}
+
+function renderCallLocationDetails(key) {
+    const details = document.getElementById('callLocationDetails');
+    if (!details) return;
+    const records = (window.callAnalysisLocationIndex && window.callAnalysisLocationIndex.get(key)) || [];
+    if (!records.length) {
+        details.innerHTML = 'No records for this location.';
+        return;
+    }
+    details.innerHTML = records.slice(0, 10).map(record => {
+        const time = record['Start Date/Time'] || record['Start Time'] || record['Date/Time'] || '';
+        const contact = record['Associate Number'] || record['Caller'] || record['Called'] || 'Unknown';
+        const direction = record['Direction'] || '';
+        const duration = record['Duration'] || '';
+        return `
+            <div style="padding: 6px 0; border-bottom: 1px solid var(--border-color);">
+                <div style="font-weight: 600;">${contact} ${direction ? `(${direction})` : ''}</div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">${time} ${duration ? `• ${duration}` : ''}</div>
+            </div>
+        `;
+    }).join('') + (records.length > 10 ? `<div style="margin-top: 6px; color: var(--text-secondary); font-size: 0.85rem;">+${records.length - 10} more</div>` : '');
 }
 
 function parseDurationString(durationStr) {
@@ -5170,8 +5422,10 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     resultsDiv.style.display = 'block';
     resultsDiv.className = 'results-container active';
     window.lastCallLocations = analysis.locations;
+    window.callAnalysisLocationIndex = analysis.locationIndex;
     window.callAnalysisMode = mode;
     const toggleHTML = renderCallAnalysisToggle(mode);
+    const timeFilterHTML = renderTimeFilterChip();
 
     const sections = [];
 
@@ -5223,7 +5477,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     `;
     sections.push(createCollapsibleSection(
         'Call Overview',
-        toggleHTML + overviewHTML,
+        toggleHTML + timeFilterHTML + overviewHTML,
         expandedState.get('call-overview') ?? true,
         'call-overview'
     ));
@@ -5257,9 +5511,33 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     contactsHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         'Top 20 Contacts',
-        toggleHTML + contactsHTML,
+        toggleHTML + timeFilterHTML + contactsHTML,
         expandedState.get('call-contacts') ?? true,
         'call-contacts'
+    ));
+    
+    const contactCardsHTML = renderContactCards(analysis);
+    sections.push(createCollapsibleSection(
+        'Contact Cards',
+        toggleHTML + timeFilterHTML + contactCardsHTML,
+        expandedState.get('call-contact-cards') ?? false,
+        'call-contact-cards'
+    ));
+
+    const contactTimelineHTML = renderContactTimeline(analysis);
+    sections.push(createCollapsibleSection(
+        'Contact Timeline',
+        toggleHTML + timeFilterHTML + contactTimelineHTML,
+        expandedState.get('call-contact-timeline') ?? false,
+        'call-contact-timeline'
+    ));
+
+    const smsThreadsHTML = renderSmsThreads(analysis);
+    sections.push(createCollapsibleSection(
+        'SMS Threads',
+        toggleHTML + timeFilterHTML + smsThreadsHTML,
+        expandedState.get('call-sms-threads') ?? false,
+        'call-sms-threads'
     ));
 
     // Carrier Distribution
@@ -5284,67 +5562,67 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         'call-carriers'
     ));
 
-    // Hourly Distribution
+    const locationPairsHTML = renderLocationPairs(analysis);
+    sections.push(createCollapsibleSection(
+        'Frequent Location Pairs',
+        toggleHTML + timeFilterHTML + locationPairsHTML,
+        expandedState.get('call-location-pairs') ?? false,
+        'call-location-pairs'
+    ));
+
+    // Hourly Distribution (interactive)
     const maxHourly = Math.max(...analysis.hourlyDistribution);
     let hourlyHTML = '<div style="overflow-x: auto;">';
     if (maxHourly === 0) {
         hourlyHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
     } else {
-        const chartWidth = 720;
-        const chartHeight = 180;
-        const padding = 24;
-        const barGap = 4;
-        const barCount = analysis.hourlyDistribution.length;
-        const barWidth = Math.floor((chartWidth - padding * 2 - barGap * (barCount - 1)) / barCount);
-        hourlyHTML += `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; max-width: 900px; height: auto;">`;
-        hourlyHTML += `<line x1="${padding}" y1="${chartHeight - padding}" x2="${chartWidth - padding}" y2="${chartHeight - padding}" stroke="var(--border-color)" stroke-width="1"/>`;
+        hourlyHTML += '<div style="display: grid; grid-template-columns: repeat(24, minmax(16px, 1fr)); gap: 6px; align-items: end; height: 160px;">';
         analysis.hourlyDistribution.forEach((count, hour) => {
-            const x = padding + hour * (barWidth + barGap);
-            const h = Math.max(4, Math.round((count / maxHourly) * (chartHeight - padding * 2)));
-            const y = (chartHeight - padding) - h;
-            hourlyHTML += `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="3" fill="var(--accent-color)"/>`;
-            if (hour % 2 === 0) {
-                hourlyHTML += `<text x="${x + barWidth / 2}" y="${chartHeight - 6}" text-anchor="middle" font-size="10" fill="var(--text-secondary)">${String(hour).padStart(2, '0')}</text>`;
-            }
+            const height = Math.max(6, Math.round((count / maxHourly) * 140));
+            hourlyHTML += `
+                <div class="call-hour-bar" data-hour="${hour}" title="${String(hour).padStart(2, '0')}:00 • ${count}" style="height: ${height}px; background: var(--accent-color); border-radius: 4px; cursor: pointer;"></div>
+            `;
         });
-        hourlyHTML += '</svg>';
+        hourlyHTML += '</div>';
+        hourlyHTML += '<div style="display: grid; grid-template-columns: repeat(24, minmax(16px, 1fr)); gap: 6px; margin-top: 6px; font-size: 0.65rem; color: var(--text-secondary);">';
+        analysis.hourlyDistribution.forEach((_, hour) => {
+            hourlyHTML += `<div style="text-align: center;">${hour % 3 === 0 ? String(hour).padStart(2, '0') : ''}</div>`;
+        });
+        hourlyHTML += '</div>';
     }
     hourlyHTML += '</div>';
     sections.push(createCollapsibleSection(
         'Calls by Hour of Day',
-        toggleHTML + hourlyHTML,
+        toggleHTML + timeFilterHTML + hourlyHTML,
         expandedState.get('call-hourly') ?? false,
         'call-hourly'
     ));
 
-    // Day of Week Distribution
+    // Day of Week Distribution (interactive)
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution);
     let dayOfWeekHTML = '<div style="overflow-x: auto;">';
     if (maxDayOfWeek === 0) {
         dayOfWeekHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
     } else {
-        const chartWidth = 520;
-        const chartHeight = 180;
-        const padding = 28;
-        const barGap = 12;
-        const barCount = analysis.dayOfWeekDistribution.length;
-        const barWidth = Math.floor((chartWidth - padding * 2 - barGap * (barCount - 1)) / barCount);
-        dayOfWeekHTML += `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; max-width: 700px; height: auto;">`;
-        dayOfWeekHTML += `<line x1="${padding}" y1="${chartHeight - padding}" x2="${chartWidth - padding}" y2="${chartHeight - padding}" stroke="var(--border-color)" stroke-width="1"/>`;
+        dayOfWeekHTML += '<div style="display: grid; grid-template-columns: repeat(7, minmax(40px, 1fr)); gap: 10px; align-items: end; height: 160px;">';
         analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
-            const x = padding + dayIndex * (barWidth + barGap);
-            const h = Math.max(6, Math.round((count / maxDayOfWeek) * (chartHeight - padding * 2)));
-            const y = (chartHeight - padding) - h;
-            dayOfWeekHTML += `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="3" fill="var(--success-color)"/>`;
-            dayOfWeekHTML += `<text x="${x + barWidth / 2}" y="${chartHeight - 6}" text-anchor="middle" font-size="10" fill="var(--text-secondary)">${daysOfWeek[dayIndex].slice(0, 3)}</text>`;
+            const height = Math.max(8, Math.round((count / maxDayOfWeek) * 140));
+            dayOfWeekHTML += `
+                <div class="call-day-bar" data-day="${dayIndex}" title="${daysOfWeek[dayIndex]} • ${count}" style="height: ${height}px; background: var(--success-color); border-radius: 4px; cursor: pointer;"></div>
+            `;
         });
-        dayOfWeekHTML += '</svg>';
+        dayOfWeekHTML += '</div>';
+        dayOfWeekHTML += '<div style="display: grid; grid-template-columns: repeat(7, minmax(40px, 1fr)); gap: 10px; margin-top: 6px; font-size: 0.7rem; color: var(--text-secondary);">';
+        analysis.dayOfWeekDistribution.forEach((_, dayIndex) => {
+            dayOfWeekHTML += `<div style="text-align: center;">${daysOfWeek[dayIndex].slice(0, 3)}</div>`;
+        });
+        dayOfWeekHTML += '</div>';
     }
     dayOfWeekHTML += '</div>';
     sections.push(createCollapsibleSection(
         '📅 Calls by Day of Week',
-        toggleHTML + dayOfWeekHTML,
+        toggleHTML + timeFilterHTML + dayOfWeekHTML,
         expandedState.get('call-day-of-week') ?? false,
         'call-day-of-week'
     ));
@@ -5372,7 +5650,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     dailyTrendsHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         '📊 Daily Call Trends',
-        toggleHTML + dailyTrendsHTML,
+        toggleHTML + timeFilterHTML + dailyTrendsHTML,
         expandedState.get('call-daily-trends') ?? false,
         'call-daily-trends'
     ));
@@ -5398,7 +5676,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     durationTrendsHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         '📈 Call Duration Trends',
-        toggleHTML + durationTrendsHTML,
+        toggleHTML + timeFilterHTML + durationTrendsHTML,
         expandedState.get('call-duration-trends') ?? false,
         'call-duration-trends'
     ));
@@ -5472,9 +5750,10 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     if (analysis.locations.length > 0) {
         let geoHTML = '<div id="callLocationMap" style="height: 500px; width: 100%; margin-top: 10px;"></div>';
         geoHTML += `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 0.85rem;">📍 ${analysis.locations.length} locations recorded</div>`;
+        geoHTML += '<div id="callLocationDetails" style="margin-top: 12px; font-size: 0.9rem; color: var(--text-secondary);">Click a map marker to see records.</div>';
         sections.push(createCollapsibleSection(
             '🗺️ Geographic Heat Map',
-            toggleHTML + geoHTML,
+            toggleHTML + timeFilterHTML + geoHTML,
             expandedState.get('call-geo-map') ?? false,
             'call-geo-map'
         ));
@@ -5627,6 +5906,7 @@ function initializeCallLocationMap(locations, attempt = 0) {
         }).addTo(map);
 
         marker.bindPopup(`<strong>${count} call${count > 1 ? 's' : ''}</strong><br>Location: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+        marker.on('click', () => renderCallLocationDetails(key));
     });
 
     validLocations.forEach(loc => {
@@ -5729,6 +6009,7 @@ window.clearCallAnalysis = clearCallAnalysis;
 window.filterCallAnalysisByTarget = filterCallAnalysisByTarget;
 window.searchCallContacts = searchCallContacts;
 window.setCallAnalysisMode = setCallAnalysisMode;
+window.clearCallAnalysisTimeFilter = clearCallAnalysisTimeFilter;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

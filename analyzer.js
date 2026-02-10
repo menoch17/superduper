@@ -2108,6 +2108,7 @@ function analyzePacketData() {
         const srcIP = packet['Source Address'];
         const dstIP = packet['Destination Address'];
         const srcPort = packet['Source Port'];
+        const dstPort = packet['Destination Port'];
         const protocol = packet['Session Protocol'] || packet['Transport Protocol'];
         const bytes = parseInt(packet['Bytes']) || 0;
         const effectivePort = srcPort;
@@ -2118,15 +2119,27 @@ function analyzePacketData() {
         if (srcIP && srcIP !== '' && !srcIP.startsWith('fd00:')) {
             if (!ipAnalysis[srcIP]) {
                 ipAnalysis[srcIP] = {
+                    ip: srcIP,
+                    isSource: false,
+                    isDestination: false,
                     packets: 0,
                     bytes: 0,
+                    srcPackets: 0,
+                    srcBytes: 0,
+                    dstPackets: 0,
+                    dstBytes: 0,
                     ports: new Set(),
                     service: identifyService(srcIP, effectivePort),
-                    protocols: new Set()
+                    protocols: new Set(),
+                    connections: 0
                 };
             }
+            ipAnalysis[srcIP].isSource = true;
             ipAnalysis[srcIP].packets++;
+            ipAnalysis[srcIP].srcPackets++;
             ipAnalysis[srcIP].bytes += bytes;
+            ipAnalysis[srcIP].srcBytes += bytes;
+            ipAnalysis[srcIP].connections++;
             if (effectivePort) ipAnalysis[srcIP].ports.add(effectivePort);
             if (protocol) ipAnalysis[srcIP].protocols.add(protocol);
         }
@@ -2135,16 +2148,28 @@ function analyzePacketData() {
         if (dstIP && dstIP !== '' && !dstIP.startsWith('fd00:')) {
             if (!ipAnalysis[dstIP]) {
                 ipAnalysis[dstIP] = {
+                    ip: dstIP,
+                    isSource: false,
+                    isDestination: false,
                     packets: 0,
                     bytes: 0,
+                    srcPackets: 0,
+                    srcBytes: 0,
+                    dstPackets: 0,
+                    dstBytes: 0,
                     ports: new Set(),
-                    service: identifyService(dstIP, effectivePort),
-                    protocols: new Set()
+                    service: identifyService(dstIP, dstPort || effectivePort),
+                    protocols: new Set(),
+                    connections: 0
                 };
             }
+            ipAnalysis[dstIP].isDestination = true;
             ipAnalysis[dstIP].packets++;
+            ipAnalysis[dstIP].dstPackets++;
             ipAnalysis[dstIP].bytes += bytes;
-            if (effectivePort) ipAnalysis[dstIP].ports.add(effectivePort);
+            ipAnalysis[dstIP].dstBytes += bytes;
+            ipAnalysis[dstIP].connections++;
+            if (dstPort) ipAnalysis[dstIP].ports.add(dstPort);
             if (protocol) ipAnalysis[dstIP].protocols.add(protocol);
 
             if (!destinationStats[dstIP]) {
@@ -2366,48 +2391,86 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     }
     sections.push(createCollapsibleSection('Detected Applications & Services', appHTML, true, 'packet-apps'));
 
-    // Top Talkers Section
-    const topTalkersByBytes = Object.entries(ipAnalysis)
-        .sort((a, b) => b[1].bytes - a[1].bytes)
-        .slice(0, 10);
-    const topTalkersByPackets = Object.entries(ipAnalysis)
-        .sort((a, b) => b[1].packets - a[1].packets)
-        .slice(0, 10);
+    // Unified IP Analysis Section with Filtering
+    let ipAnalysisHTML = `
+        <div style="margin-bottom: 15px;">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
+                <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
+            </div>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                <button class="filter-chip active" data-ip-filter="all" onclick="filterIPAnalysis('all')">All IPs</button>
+                <button class="filter-chip" data-ip-filter="source" onclick="filterIPAnalysis('source')">↑ Source IPs</button>
+                <button class="filter-chip" data-ip-filter="destination" onclick="filterIPAnalysis('destination')">↓ Destination IPs</button>
+                <div style="margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <select id="ipSortSelect" onchange="sortIPAnalysis(this.value)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary);">
+                        <option value="bytes">Sort by Bytes</option>
+                        <option value="packets">Sort by Packets</option>
+                        <option value="connections">Sort by Connections</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div style="overflow-x: auto;">
+            <table class="data-table" id="ipAnalysisTable" style="width: 100%; border-collapse: collapse;">
+                <thead><tr style="background: var(--primary-color); color: white;">
+                    <th style="padding: 12px; text-align: left;">WHOIS / IP</th>
+                    <th style="padding: 12px; text-align: center;">Direction</th>
+                    <th style="padding: 12px; text-align: left;">Service</th>
+                    <th style="padding: 12px; text-align: right;">Packets</th>
+                    <th style="padding: 12px; text-align: right;">Bytes</th>
+                    <th style="padding: 12px; text-align: right;">Connections</th>
+                    <th style="padding: 12px; text-align: left;">Ports</th>
+                    <th style="padding: 12px; text-align: left;">Protocols</th>
+                </tr></thead>
+                <tbody id="ipAnalysisTableBody">
+    `;
 
-    let talkersHTML = '<div style="display: grid; grid-template-columns: 1fr; gap: 16px;">';
-    talkersHTML += '<div style="overflow-x: auto;"><table class="data-table compact-table" style="width: 100%; border-collapse: collapse;">';
-    talkersHTML += '<thead><tr><th>By Bytes</th><th style="text-align: right;">Bytes</th><th style="text-align: right;">Packets</th></tr></thead><tbody>';
-    topTalkersByBytes.forEach(([ip, data]) => {
+    // Build table rows with all data
+    const sortedIPs = Object.values(ipAnalysis)
+        .sort((a, b) => b.bytes - a.bytes)
+        .slice(0, 100); // Top 100 IPs
+
+    sortedIPs.forEach((data) => {
+        const ip = data.ip;
+        const ports = Array.from(data.ports).slice(0, 5).join(', ');
+        const protocols = Array.from(data.protocols).join(', ');
         const ipKey = ip.replace(/:/g, '-');
         const displayMeta = getIpDisplayMeta(ip);
-        talkersHTML += `<tr>
-            <td style="padding: 10px;">
-                <div data-whois-name="${ip}" style="font-weight: 600;">${displayMeta.name}</div>
-                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
-                <span id="whois-${ipKey}-talker" style="display: none;"></span>
-            </td>
-            <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
-            <td style="padding: 10px; text-align: right;">${data.packets}</td>
-        </tr>`;
+
+        // Determine direction indicator
+        let direction = '';
+        let directionClass = '';
+        if (data.isSource && data.isDestination) {
+            direction = '↕️';
+            directionClass = 'both';
+        } else if (data.isSource) {
+            direction = '↑';
+            directionClass = 'source';
+        } else if (data.isDestination) {
+            direction = '↓';
+            directionClass = 'destination';
+        }
+
+        ipAnalysisHTML += `
+            <tr class="ip-row ip-${directionClass}" data-direction="${directionClass}" style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 10px;">
+                    <div id="whois-name-${ipKey}" data-whois-name="${ip}" style="font-weight: 600;">${displayMeta.name}</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
+                    <span id="whois-${ipKey}" style="display: none;"></span>
+                </td>
+                <td style="padding: 10px; text-align: center; font-size: 1.2rem;" title="${directionClass}">${direction}</td>
+                <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
+                <td style="padding: 10px; text-align: right;" data-packets="${data.packets}">${data.packets}</td>
+                <td style="padding: 10px; text-align: right;" data-bytes="${data.bytes}">${formatBytes(data.bytes)}</td>
+                <td style="padding: 10px; text-align: right;" data-connections="${data.connections}">${data.connections}</td>
+                <td style="padding: 10px; font-size: 0.85rem;">${ports}</td>
+                <td style="padding: 10px; font-size: 0.85rem;">${protocols}</td>
+            </tr>
+        `;
     });
-    talkersHTML += '</tbody></table></div>';
-    talkersHTML += '<div style="overflow-x: auto;"><table class="data-table compact-table" style="width: 100%; border-collapse: collapse;">';
-    talkersHTML += '<thead><tr><th>By Packets</th><th style="text-align: right;">Packets</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
-    topTalkersByPackets.forEach(([ip, data]) => {
-        const ipKey = ip.replace(/:/g, '-');
-        const displayMeta = getIpDisplayMeta(ip);
-        talkersHTML += `<tr>
-            <td style="padding: 10px;">
-                <div data-whois-name="${ip}" style="font-weight: 600;">${displayMeta.name}</div>
-                <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
-                <span id="whois-${ipKey}-talker" style="display: none;"></span>
-            </td>
-            <td style="padding: 10px; text-align: right;">${data.packets}</td>
-            <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
-        </tr>`;
-    });
-    talkersHTML += '</tbody></table></div></div>';
-    sections.push(createCollapsibleSection('Top Talkers', talkersHTML, true, 'packet-talkers'));
+
+    ipAnalysisHTML += '</tbody></table></div>';
+    sections.push(createCollapsibleSection('IP Address Analysis', ipAnalysisHTML, true, 'packet-ip-analysis'));
 
     // Protocol Sessions Section
     let protocolHTML = '<p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 0.9rem;">Counts reflect sessions grouped by protocol (Session Protocol or Transport Protocol).</p>';
@@ -2427,82 +2490,6 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         protocolHTML += '<p style="color: var(--text-secondary);">No protocol session data available.</p>';
     }
     sections.push(createCollapsibleSection('Protocol Sessions', protocolHTML, false, 'packet-protocols'));
-
-    // Top Destinations Section
-    const topDestinations = Object.entries(destinationStats || {})
-        .sort((a, b) => b[1].bytes - a[1].bytes)
-        .slice(0, 12)
-        .map(([ip, stats]) => {
-            const cacheKey = normalizeIpForCache(ip);
-            const name = reverseDnsCache[ip] || ipWhoisNameCache[cacheKey] || ip;
-            const source = reverseDnsCache[ip] ? 'PTR' : (ipWhoisNameCache[cacheKey] ? 'WHOIS' : 'IP');
-            return { ip, name, source, bytes: stats.bytes, packets: stats.packets };
-        });
-    let destinationsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-    destinationsHTML += '<thead><tr><th>Destination</th><th style="text-align: right;">Connections</th><th style="text-align: right;">Bytes</th></tr></thead><tbody>';
-    if (topDestinations.length) {
-        topDestinations.forEach(item => {
-            destinationsHTML += `<tr>
-                <td style="padding: 10px;">
-                    <div data-whois-name="${item.ip}" style="font-weight: 600;">${item.name}</div>
-                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${item.ip} · ${item.source}</div>
-                </td>
-                <td style="padding: 10px; text-align: right;">${item.packets}</td>
-                <td style="padding: 10px; text-align: right;">${formatBytes(item.bytes)}</td>
-            </tr>`;
-        });
-    } else {
-        destinationsHTML += '<tr><td colspan="3" style="padding: 10px; color: var(--text-secondary);">No destination stats available.</td></tr>';
-    }
-    destinationsHTML += '</tbody></table>';
-    destinationsHTML += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">';
-    destinationsHTML += '<span id="ptrStatus">PTR lookups are often missing; WHOIS is used as fallback.</span>';
-    destinationsHTML += '</div></div>';
-    sections.push(createCollapsibleSection('Top Destinations (PTR/WHOIS)', destinationsHTML, false, 'packet-destinations'));
-
-    // Top IP Addresses Section
-    let topIPsHTML = `
-        <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
-            <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
-        </div>
-    `;
-    topIPsHTML += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-    topIPsHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
-    topIPsHTML += '<th style="padding: 12px; text-align: left;">WHOIS / IP</th>';
-    topIPsHTML += '<th style="padding: 12px; text-align: left;">Service</th>';
-    topIPsHTML += '<th style="padding: 12px; text-align: right;">Packets</th>';
-    topIPsHTML += '<th style="padding: 12px; text-align: right;">Bytes</th>';
-    topIPsHTML += '<th style="padding: 12px; text-align: left;">Ports</th>';
-    topIPsHTML += '<th style="padding: 12px; text-align: left;">Protocols</th>';
-    topIPsHTML += '</tr></thead><tbody>';
-
-    const sortedIPs = Object.entries(ipAnalysis)
-        .sort((a, b) => b[1].bytes - a[1].bytes)
-        .slice(0, 50); // Top 50 IPs
-
-    sortedIPs.forEach(([ip, data]) => {
-        const ports = Array.from(data.ports).slice(0, 5).join(', ');
-        const protocols = Array.from(data.protocols).join(', ');
-        const ipKey = ip.replace(/:/g, '-');
-        const displayMeta = getIpDisplayMeta(ip);
-        topIPsHTML += `
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <td style="padding: 10px;">
-                    <div id="whois-name-${ipKey}" style="font-weight: 600;">${displayMeta.name}</div>
-                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
-                    <span id="whois-${ipKey}" style="display: none;"></span>
-                </td>
-                <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
-                <td style="padding: 10px; text-align: right;">${data.packets}</td>
-                <td style="padding: 10px; text-align: right;">${formatBytes(data.bytes)}</td>
-                <td style="padding: 10px; font-size: 0.85rem;">${ports}</td>
-                <td style="padding: 10px; font-size: 0.85rem;">${protocols}</td>
-            </tr>
-        `;
-    });
-
-    topIPsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('Top IP Addresses', topIPsHTML, true, 'packet-top-ips'));
 
     // Port Usage Statistics Section
     let portHTML = '';
@@ -2579,6 +2566,63 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     setTimeout(() => {
         performBulkWhois();
     }, 0);
+}
+
+// Filter IP Analysis table by direction
+function filterIPAnalysis(filterType) {
+    const rows = document.querySelectorAll('#ipAnalysisTable .ip-row');
+    const buttons = document.querySelectorAll('[data-ip-filter]');
+
+    // Update button states
+    buttons.forEach(btn => {
+        if (btn.getAttribute('data-ip-filter') === filterType) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Filter rows
+    rows.forEach(row => {
+        const direction = row.getAttribute('data-direction');
+        if (filterType === 'all') {
+            row.style.display = '';
+        } else if (filterType === 'source' && (direction === 'source' || direction === 'both')) {
+            row.style.display = '';
+        } else if (filterType === 'destination' && (direction === 'destination' || direction === 'both')) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+// Sort IP Analysis table
+function sortIPAnalysis(sortBy) {
+    const tbody = document.getElementById('ipAnalysisTableBody');
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.querySelectorAll('.ip-row'));
+
+    rows.sort((a, b) => {
+        let aVal, bVal;
+
+        if (sortBy === 'bytes') {
+            aVal = parseInt(a.querySelector('[data-bytes]').getAttribute('data-bytes')) || 0;
+            bVal = parseInt(b.querySelector('[data-bytes]').getAttribute('data-bytes')) || 0;
+        } else if (sortBy === 'packets') {
+            aVal = parseInt(a.querySelector('[data-packets]').getAttribute('data-packets')) || 0;
+            bVal = parseInt(b.querySelector('[data-packets]').getAttribute('data-packets')) || 0;
+        } else if (sortBy === 'connections') {
+            aVal = parseInt(a.querySelector('[data-connections]').getAttribute('data-connections')) || 0;
+            bVal = parseInt(b.querySelector('[data-connections]').getAttribute('data-connections')) || 0;
+        }
+
+        return bVal - aVal; // Descending order
+    });
+
+    // Re-append rows in sorted order
+    rows.forEach(row => tbody.appendChild(row));
 }
 
 async function viewWhoisCache() {
@@ -4521,6 +4565,8 @@ window.performBulkWhois = performBulkWhois;
 window.viewWhoisCache = viewWhoisCache;
 window.closeWhoisCache = closeWhoisCache;
 window.resolveReverseDNS = resolveReverseDNS;
+window.filterIPAnalysis = filterIPAnalysis;
+window.sortIPAnalysis = sortIPAnalysis;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

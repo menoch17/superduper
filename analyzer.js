@@ -4836,11 +4836,24 @@ function filterCallAnalysisByTarget(target) {
 function analyzeCallData() {
     if (callAnalysisData.length === 0) return;
 
+    const callsOnly = callAnalysisData.filter(row => isCallRecord(row));
+    const smsOnly = callAnalysisData.filter(row => isSmsRecord(row));
+
+    window.callAnalysisViews = {
+        calls: buildCallAnalysis(callsOnly),
+        sms: buildCallAnalysis(smsOnly)
+    };
+
+    const mode = window.callAnalysisMode || 'calls';
+    displayCallAnalysis(window.callAnalysisViews[mode], mode);
+}
+
+function buildCallAnalysis(data) {
     // Group by content type first
     const byContentType = new Map();
     const contentTypes = new Set();
 
-    callAnalysisData.forEach(call => {
+    data.forEach(call => {
         const contentType = call['Content Type'] || 'Unknown';
         contentTypes.add(contentType);
         if (!byContentType.has(contentType)) {
@@ -4850,7 +4863,8 @@ function analyzeCallData() {
     });
 
     const analysis = {
-        totalRecords: callAnalysisData.length,
+        totalRecords: data.length,
+        records: data,
         contentTypes: contentTypes,
         byContentType: byContentType,
         incoming: 0,
@@ -4871,7 +4885,7 @@ function analyzeCallData() {
         imsiData: new Map()
     };
 
-    callAnalysisData.forEach(call => {
+    data.forEach(call => {
         // Direction
         const direction = (call['Direction'] || '').toLowerCase();
         if (direction === 'incoming') analysis.incoming++;
@@ -4970,7 +4984,35 @@ function analyzeCallData() {
     const totalCalls = analysis.incoming + analysis.outgoing;
     analysis.averageDuration = totalCalls > 0 ? analysis.totalDuration / totalCalls : 0;
 
-    displayCallAnalysis(analysis);
+    return analysis;
+}
+
+function isCallRecord(row) {
+    const type = String(row['Content Type'] || '').toLowerCase();
+    return type === 'call' || type === 'voice';
+}
+
+function isSmsRecord(row) {
+    const type = String(row['Content Type'] || '').toLowerCase();
+    return type === 'sms' || type === 'mms' || type === 'sms/mms';
+}
+
+function setCallAnalysisMode(mode) {
+    window.callAnalysisMode = mode;
+    const analysis = window.callAnalysisViews?.[mode];
+    if (analysis) displayCallAnalysis(analysis, mode);
+}
+
+function renderCallAnalysisToggle(mode) {
+    const isCalls = mode === 'calls';
+    const isSms = mode === 'sms';
+    const baseStyle = 'padding: 4px 8px; border-radius: 6px; font-size: 0.75rem;';
+    return `
+        <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+            <button class="btn-secondary" style="${baseStyle} ${isCalls ? 'background: var(--primary-color); color: white;' : ''}" onclick="setCallAnalysisMode('calls')">Calls</button>
+            <button class="btn-secondary" style="${baseStyle} ${isSms ? 'background: var(--primary-color); color: white;' : ''}" onclick="setCallAnalysisMode('sms')">SMS/MMS</button>
+        </div>
+    `;
 }
 
 function parseDurationString(durationStr) {
@@ -4989,11 +5031,13 @@ function formatDurationFromSeconds(seconds) {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-function displayCallAnalysis(analysis) {
+function displayCallAnalysis(analysis, mode = 'calls') {
     const resultsDiv = document.getElementById('callResults');
     resultsDiv.style.display = 'block';
     resultsDiv.className = 'results-container active';
     window.lastCallLocations = analysis.locations;
+    window.callAnalysisMode = mode;
+    const toggleHTML = renderCallAnalysisToggle(mode);
 
     const sections = [];
 
@@ -5012,7 +5056,7 @@ function displayCallAnalysis(analysis) {
         `;
     });
     contentTypeHTML += '</div>';
-    sections.push(createCollapsibleSection('Content Type Breakdown', contentTypeHTML, true, 'call-content-types'));
+    sections.push(createCollapsibleSection('Content Type Breakdown', toggleHTML + contentTypeHTML, true, 'call-content-types'));
 
     // Overview Section
     const overviewHTML = `
@@ -5038,7 +5082,7 @@ function displayCallAnalysis(analysis) {
             </div>
         </div>
     `;
-    sections.push(createCollapsibleSection('Call Overview', overviewHTML, true, 'call-overview'));
+    sections.push(createCollapsibleSection('Call Overview', toggleHTML + overviewHTML, true, 'call-overview'));
 
     // Top Contacts Section
     const topContacts = Array.from(analysis.contacts.entries())
@@ -5067,7 +5111,7 @@ function displayCallAnalysis(analysis) {
     });
 
     contactsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('Top 20 Contacts', contactsHTML, true, 'call-contacts'));
+    sections.push(createCollapsibleSection('Top 20 Contacts', toggleHTML + contactsHTML, true, 'call-contacts'));
 
     // Carrier Distribution
     const carrierEntries = Array.from(analysis.carriers.entries()).sort((a, b) => b[1] - a[1]);
@@ -5084,7 +5128,7 @@ function displayCallAnalysis(analysis) {
         `;
     });
     carrierHTML += '</div>';
-    sections.push(createCollapsibleSection('Carrier Distribution', carrierHTML, false, 'call-carriers'));
+    sections.push(createCollapsibleSection('Carrier Distribution', toggleHTML + carrierHTML, false, 'call-carriers'));
 
     // Hourly Distribution
     let hourlyHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
@@ -5103,7 +5147,7 @@ function displayCallAnalysis(analysis) {
         `;
     });
     hourlyHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('Calls by Hour of Day', hourlyHTML, false, 'call-hourly'));
+    sections.push(createCollapsibleSection('Calls by Hour of Day', toggleHTML + hourlyHTML, false, 'call-hourly'));
 
     // Day of Week Distribution
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -5123,7 +5167,7 @@ function displayCallAnalysis(analysis) {
         `;
     });
     dayOfWeekHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('📅 Calls by Day of Week', dayOfWeekHTML, false, 'call-day-of-week'));
+    sections.push(createCollapsibleSection('📅 Calls by Day of Week', toggleHTML + dayOfWeekHTML, false, 'call-day-of-week'));
 
     // Daily Call Trends
     const dailyTrends = Array.from(analysis.callsByDay.entries())
@@ -5146,7 +5190,7 @@ function displayCallAnalysis(analysis) {
         `;
     });
     dailyTrendsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('📊 Daily Call Trends', dailyTrendsHTML, false, 'call-daily-trends'));
+    sections.push(createCollapsibleSection('📊 Daily Call Trends', toggleHTML + dailyTrendsHTML, false, 'call-daily-trends'));
 
     // Call Duration Trends Over Time
     const durationTrends = Array.from(analysis.durationByDay.entries())
@@ -5167,7 +5211,7 @@ function displayCallAnalysis(analysis) {
         `;
     });
     durationTrendsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('📈 Call Duration Trends', durationTrendsHTML, false, 'call-duration-trends'));
+    sections.push(createCollapsibleSection('📈 Call Duration Trends', toggleHTML + durationTrendsHTML, false, 'call-duration-trends'));
 
     // IMEI Analysis
     if (analysis.imeiData.size > 0) {
@@ -5192,7 +5236,7 @@ function displayCallAnalysis(analysis) {
         });
 
         imeiHTML += '</tbody></table></div>';
-        sections.push(createCollapsibleSection('📱 IMEI Device Analysis', imeiHTML, false, 'call-imei'));
+        sections.push(createCollapsibleSection('📱 IMEI Device Analysis', toggleHTML + imeiHTML, false, 'call-imei'));
     }
 
     // IMSI Analysis
@@ -5218,14 +5262,14 @@ function displayCallAnalysis(analysis) {
         });
 
         imsiHTML += '</tbody></table></div>';
-        sections.push(createCollapsibleSection('📱 IMSI Subscriber Analysis', imsiHTML, false, 'call-imsi'));
+        sections.push(createCollapsibleSection('📱 IMSI Subscriber Analysis', toggleHTML + imsiHTML, false, 'call-imsi'));
     }
 
     // Geographic Heat Map
     if (analysis.locations.length > 0) {
         let geoHTML = '<div id="callLocationMap" style="height: 500px; width: 100%; margin-top: 10px;"></div>';
         geoHTML += `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 0.85rem;">📍 ${analysis.locations.length} locations recorded</div>`;
-        sections.push(createCollapsibleSection('🗺️ Geographic Heat Map', geoHTML, false, 'call-geo-map'));
+        sections.push(createCollapsibleSection('🗺️ Geographic Heat Map', toggleHTML + geoHTML, false, 'call-geo-map'));
     }
 
     // Average Call Duration by Contact (Enhanced)
@@ -5258,13 +5302,13 @@ function displayCallAnalysis(analysis) {
     });
 
     avgDurationHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('⏱️ Average Duration by Contact', avgDurationHTML, false, 'call-avg-duration'));
+    sections.push(createCollapsibleSection('⏱️ Average Duration by Contact', toggleHTML + avgDurationHTML, false, 'call-avg-duration'));
 
     // Call Records Table
     let recordsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
     recordsHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
     recordsHTML += '<th>Date/Time</th><th>Direction</th><th>Contact</th><th>Duration</th><th>Carrier</th></tr></thead><tbody>';
-    callAnalysisData.slice(0, 100).forEach(call => {
+    (analysis.records || []).slice(0, 100).forEach(call => {
         const direction = call['Direction'] || '';
         const directionIcon = direction.toLowerCase() === 'incoming' ? '📞 ↓' : '📞 ↑';
         recordsHTML += `
@@ -5278,8 +5322,9 @@ function displayCallAnalysis(analysis) {
         `;
     });
     recordsHTML += '</tbody></table></div>';
-    recordsHTML += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Showing first 100 calls</div>';
-    sections.push(createCollapsibleSection('Call Records', recordsHTML, false, 'call-records'));
+    const recordLabel = mode === 'sms' ? 'messages' : 'calls';
+    recordsHTML += `<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Showing first 100 ${recordLabel}</div>`;
+    sections.push(createCollapsibleSection('Call Records', toggleHTML + recordsHTML, false, 'call-records'));
 
     resultsDiv.innerHTML = sections.join('');
     setupCollapsibles();
@@ -5437,6 +5482,7 @@ window.handleCallCSVUpload = handleCallCSVUpload;
 window.clearCallAnalysis = clearCallAnalysis;
 window.filterCallAnalysisByTarget = filterCallAnalysisByTarget;
 window.searchCallContacts = searchCallContacts;
+window.setCallAnalysisMode = setCallAnalysisMode;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

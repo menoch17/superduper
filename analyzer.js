@@ -4896,6 +4896,7 @@ function analyzeCallData() {
     const callsOnly = callAnalysisData.filter(row => isCallRecord(row));
     const smsOnly = callAnalysisData.filter(row => isSmsRecord(row));
 
+    window.callAnalysisAll = buildCallAnalysis(callAnalysisData);
     window.callAnalysisBaseRecords = { calls: callsOnly, sms: smsOnly };
 
     const mode = window.callAnalysisMode || 'calls';
@@ -5697,50 +5698,18 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     }
 
     // IMSI Analysis
-    if (analysis.imsiData.size > 0) {
-        const imsiEntries = Array.from(analysis.imsiData.entries())
-            .sort((a, b) => b[1].count - a[1].count);
-
-        let imsiHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-        imsiHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
-        imsiHTML += '<th style="padding: 12px; text-align: left;">IMSI</th>';
-        imsiHTML += '<th style="padding: 12px; text-align: left;">HLR</th>';
-        imsiHTML += '<th style="padding: 12px; text-align: right;">Usage Count</th>';
-        imsiHTML += '</tr></thead><tbody>';
-
-        imsiEntries.forEach(([imsi, data]) => {
-            imsiHTML += `
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <td style="padding: 10px; font-family: monospace;">${imsi}</td>
-                    <td style="padding: 10px;">${data.hlr}</td>
-                    <td style="padding: 10px; text-align: right; font-weight: 600;">${data.count}</td>
-                </tr>
-            `;
-        });
-
-        imsiHTML += '</tbody></table></div>';
-        sections.push(createCollapsibleSection(
-            '📱 IMSI Subscriber Analysis',
-            toggleHTML + imsiHTML,
-            expandedState.get('call-imsi') ?? false,
-            'call-imsi'
-        ));
-    }
-
     // Geographic Heat Map
-    if (analysis.locations.length > 0) {
+    const mapAnalysis = window.callAnalysisAll || analysis;
+    window.callAnalysisLocationIndex = mapAnalysis.locationIndex;
+    window.lastCallLocations = mapAnalysis.locations;
+    if (mapAnalysis.locations.length > 0) {
         let geoHTML = '<div id="callLocationMap" style="height: 500px; width: 100%; margin-top: 10px;"></div>';
-        geoHTML += `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 0.85rem;">📍 ${analysis.locations.length} locations recorded</div>`;
+        geoHTML += `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 0.85rem;">📍 ${mapAnalysis.locations.length} locations recorded</div>`;
         geoHTML += '<div id="callLocationDetails" style="margin-top: 12px; font-size: 0.9rem; color: var(--text-secondary);">Click a map marker to see records.</div>';
-        if (callAnalysisTimeFilter) {
-            const filterLabel = callAnalysisTimeFilter.type === 'hour'
-                ? `Hour: ${String(callAnalysisTimeFilter.value).padStart(2, '0')}:00`
-                : `Day: ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][callAnalysisTimeFilter.value] || callAnalysisTimeFilter.value}`;
-            geoHTML += `<div style="margin-top: 8px; font-size: 0.85rem; color: var(--warning-color, #b45309);">Filtered by ${filterLabel}</div>`;
-        }
+        geoHTML += `<div style="margin-top: 8px; font-size: 0.85rem; color: var(--text-secondary);">Map shows all records (not filtered by Calls/SMS).</div>`;
         sections.push(createCollapsibleSection(
             '🗺️ Geographic Heat Map',
-            toggleHTML + timeFilterHTML + geoHTML,
+            geoHTML,
             expandedState.get('call-geo-map') ?? false,
             'call-geo-map'
         ));

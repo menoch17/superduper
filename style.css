@@ -758,6 +758,412 @@ button {
     }
 }
 
+/* ============================================================================
+   TIMELINE VISUALIZATION STYLES
+   ============================================================================ */
+
+.timeline-visualization {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+}
+
+.timeline-controls {
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1rem;
+}
+
+.filter-chips {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.filter-chip {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+}
+
+.filter-chip:hover {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.filter-chip.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+    font-weight: 500;
+}
+
+.timeline-filters {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.timeline-filter-select {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    min-width: 200px;
+}
+
+.timeline-stats {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+.timeline-events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.timeline-event {
+    background: white;
+    border-left: 4px solid var(--accent-color);
+    border-radius: 4px;
+    padding: 1rem;
+    transition: box-shadow 0.2s ease;
+}
+
+.timeline-event:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.timeline-event[data-type="call"] {
+    border-left-color: #2563eb;
+}
+
+.timeline-event[data-type="sms"] {
+    border-left-color: #10b981;
+}
+
+.timeline-event[data-type="packet"] {
+    border-left-color: #f59e0b;
+}
+
+.timeline-event-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.timeline-icon {
+    font-size: 1.25rem;
+}
+
+.timeline-time {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-family: 'Courier New', monospace;
+}
+
+.timeline-type {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.timeline-participants {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.participant-chip {
+    background: var(--bg-secondary);
+    color: var(--accent-color);
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.timeline-location {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+.timeline-event-details {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+    font-style: italic;
+    padding-left: 1rem;
+    border-left: 2px solid var(--border-color);
+}
+
+.no-data {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 2rem;
+    font-style: italic;
+}
+
+/* ============================================================================
+   ADVANCED SEARCH & FILTER STYLES
+   ============================================================================ */
+
+.global-search-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    align-items: center;
+}
+
+.search-input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 1rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.search-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.search-results-container {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.search-results-header {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent-color);
+    color: var(--text-primary);
+}
+
+.search-results-empty {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.search-results-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.search-group {
+    background: var(--bg-primary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.search-group-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent-color);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-group-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.search-result-item {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.search-result-item:hover {
+    border-color: var(--accent-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transform: translateX(4px);
+}
+
+.search-result-match {
+    font-size: 0.95rem;
+    margin-bottom: 0.25rem;
+}
+
+.search-result-match strong {
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
+.search-result-context {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+}
+
+.search-result-time {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-family: 'Courier New', monospace;
+}
+
+.search-more-indicator {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-style: italic;
+    padding: 0.5rem;
+}
+
+/* ============================================================================
+   CALL CORRELATION STYLES
+   ============================================================================ */
+
+.correlation-analysis {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.correlation-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.correlation-summary-card {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    border: 2px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.correlation-summary-card:hover {
+    border-color: var(--accent-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.correlation-summary-count {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--accent-color);
+    margin-bottom: 0.5rem;
+}
+
+.correlation-summary-label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.correlation-section {
+    margin-bottom: 2rem;
+}
+
+.correlation-section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent-color);
+}
+
+.correlation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.correlation-card {
+    background: white;
+    border-radius: 8px;
+    padding: 1.25rem;
+    border-left: 4px solid var(--accent-color);
+    transition: all 0.2s ease;
+}
+
+.correlation-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateX(4px);
+}
+
+.correlation-header {
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+.correlation-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.correlation-call {
+    background: var(--bg-secondary);
+    padding: 0.75rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.correlation-call small {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.correlation-stat {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    padding: 0.5rem;
+    background: #f0f9ff;
+    border-radius: 4px;
+}
+
+.correlation-stat strong {
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
 @media print {
     body {
         background: white;

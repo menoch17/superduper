@@ -775,7 +775,25 @@ function analyzeCDC(options = {}) {
         document.getElementById('callSelectorContainer').style.display = 'flex';
         const preferredId = choosePreferredCallId(currentAnalyzer.calls);
         if (preferredId) selector.value = preferredId;
+
+        // Build global search index
+        globalSearchIndex = buildGlobalSearchIndex(currentAnalyzer, packetData);
+        console.log("Search index built successfully");
+
+        // Run call correlation analysis (only if multiple calls)
+        if (currentAnalyzer.calls.size > 1) {
+            window.callCorrelations = findCallCorrelations(currentAnalyzer.calls, currentAnalyzer);
+            console.log("Call correlation analysis complete");
+        } else {
+            window.callCorrelations = null;
+        }
+
         switchCall(selector.value);
+
+        // Setup search bar handlers
+        setTimeout(() => {
+            setupSearchBar();
+        }, 200);
 
         if (!options.skipTowerSync) {
             syncTowersFromCloud({ refreshAfter: true });
@@ -857,6 +875,12 @@ function displayResults(call, analyzer) {
     const firstMessageTimestamp = call.messages.length ? analyzer.parseTimestamp(call.messages[0].timestamp) : null;
     const sections = [];
     sections.push(createCollapsibleSection('Call Overview', summaryHTML, true, 'overview'));
+
+    // Add Call Correlation Analysis section (only if multiple calls)
+    if (window.callCorrelations && analyzer.calls.size > 1) {
+        const correlationHTML = displayCallCorrelations(window.callCorrelations, analyzer);
+        sections.push(createCollapsibleSection('Call Correlation Analysis', correlationHTML, true, 'correlation'));
+    }
 
     if (call.messages.length > 0) {
         const flowHTML = `
@@ -948,6 +972,13 @@ function displayResults(call, analyzer) {
         </div>`;
     sections.push(createCollapsibleSection('Technical Message Timeline', techHTML, true, 'tech'));
 
+    // Add Interactive Timeline Visualization
+    const hasPacketData = (typeof packetData !== 'undefined' && packetData.length > 0);
+    const timelineHTML = renderTimelineVisualization(call, analyzer, {
+        includePackets: hasPacketData
+    });
+    sections.push(createCollapsibleSection('Interactive Timeline', timelineHTML, true, 'timeline'));
+
     const rawHTML = `
         <div class="technical-section">
             <h3>Raw CDC Records</h3>
@@ -961,7 +992,17 @@ function displayResults(call, analyzer) {
         </div>`;
     sections.push(createCollapsibleSection('Raw CDC Records', rawHTML, false, 'raw'));
 
-    container.innerHTML = sections.join('');
+    // Add global search bar at the top
+    const searchBarHTML = `
+        <div class="global-search-bar">
+            <input type="text" id="globalSearchInput" placeholder="Search phone numbers, IPs, keywords, locations..." class="search-input">
+            <button id="globalSearchButton" class="btn-primary">Search</button>
+            <button id="globalSearchClear" class="btn-secondary">Clear</button>
+        </div>
+        <div id="searchResultsContainer" class="search-results-container" style="display: none;"></div>
+    `;
+
+    container.innerHTML = searchBarHTML + sections.join('');
     setupCollapsibles();
 
     setTimeout(() => {
@@ -971,6 +1012,9 @@ function displayResults(call, analyzer) {
             } catch (e) { console.error("Mermaid init failed", e); }
         }
         if (call.locations.length > 0) initMap(call.locations);
+
+        // Setup timeline event handlers
+        setupTimelineEventHandlers();
     }, 100);
 }
 
@@ -2456,6 +2500,36 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
 
     html += '</tbody></table></div>';
 
+    // Port Usage Statistics
+    html += '<h3 style="color: var(--primary-color); margin-bottom: 15px; margin-top: 25px;">Port Usage Statistics</h3>';
+    const sortedPorts = Object.entries(portStats || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 30);
+    if (sortedPorts.length) {
+        html += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr style="background: var(--primary-color); color: white;">';
+        html += '<th style="padding: 12px; text-align: left;">Port</th>';
+        html += '<th style="padding: 12px; text-align: left;">Service</th>';
+        html += '<th style="padding: 12px; text-align: right;">Connections</th>';
+        html += '</tr></thead><tbody>';
+
+        sortedPorts.forEach(([port, count]) => {
+            const service = getPortServiceDisplay(port);
+            html += `
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 10px; font-weight: 600;">${port}</td>
+                    <td style="padding: 10px;">${service}</td>
+                    <td style="padding: 10px; text-align: right;">${count}</td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table></div>';
+        html += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Service labels use built-ins, IANA where available, and SpeedGuide links for quick reference.</div>';
+    } else {
+        html += '<p style="color: var(--text-secondary); margin-bottom: 25px;">No port usage data available.</p>';
+    }
+
     html += '</div></div>';
 
     // Usage Timeline (bottom card)
@@ -3250,6 +3324,1180 @@ function clearPacketAnalysis() {
     document.getElementById('packetFileInput').value = '';
 }
 
+// ============================================================================
+// UTILITY HELPER FUNCTIONS
+// ============================================================================
+
+// Debounce utility - delays function execution until after wait period of inactivity
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Phone normalization - removes all non-digit characters
+function normalizePhone(phone) {
+    if (!phone) return '';
+    return phone.replace(/\D/g, '');
+}
+
+// Extract keywords from text for search indexing
+function extractKeywords(text) {
+    if (!text) return [];
+    return text.toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 2); // Minimum 3 characters
+}
+
+// Truncate text with ellipsis
+function truncate(str, maxLen) {
+    if (!str || str.length <= maxLen) return str;
+    return str.substring(0, maxLen) + '...';
+}
+
+// Group array by key function
+function groupBy(array, keyFn) {
+    return array.reduce((result, item) => {
+        const key = keyFn(item);
+        (result[key] = result[key] || []).push(item);
+        return result;
+    }, {});
+}
+
+// Capitalize first letter
+function capitalize(str) {
+    if (!str) return '';
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// Add value to search index map (handles array creation)
+function addToIndex(map, key, value) {
+    if (!map.has(key)) {
+        map.set(key, []);
+    }
+    map.get(key).push(value);
+}
+
+// ============================================================================
+// TIMELINE VISUALIZATION FUNCTIONS
+// ============================================================================
+
+// Build unified timeline from call messages, SMS data, and packet data
+function buildUnifiedTimeline(call, analyzer, includePackets = false) {
+    const events = [];
+
+    // Add CDC signaling events from call messages
+    if (call.messages && call.messages.length > 0) {
+        call.messages.forEach(msg => {
+            const timestamp = analyzer.parseTimestamp(msg.timestamp);
+            if (timestamp) {
+                events.push({
+                    timestamp: timestamp,
+                    timestampStr: msg.timestamp,
+                    type: 'call',
+                    subtype: msg.type || 'Unknown',
+                    participants: [
+                        call.callingParty?.number || 'Unknown',
+                        call.calledParty?.number || 'Unknown'
+                    ],
+                    location: msg.location || null,
+                    data: msg,
+                    callId: call.callId
+                });
+            }
+        });
+    }
+
+    // Add SMS/MMS events
+    if (call.smsData && call.smsData.length > 0) {
+        call.smsData.forEach(sms => {
+            const timestamp = analyzer.parseTimestamp(sms.timestamp);
+            if (timestamp) {
+                events.push({
+                    timestamp: timestamp,
+                    timestampStr: sms.timestamp,
+                    type: 'sms',
+                    subtype: sms.messageType || 'SMS',
+                    participants: [
+                        sms.from || 'Unknown',
+                        sms.to || 'Unknown'
+                    ],
+                    location: null,
+                    data: sms,
+                    callId: call.callId
+                });
+            }
+        });
+    }
+
+    // Add packet events if requested and available
+    if (includePackets && typeof packetData !== 'undefined' && packetData.length > 0) {
+        // Filter packets by time range correlation with this call
+        const callStartTime = analyzer.parseTimestamp(call.startTime);
+        const callEndTime = analyzer.parseTimestamp(call.endTime);
+
+        if (callStartTime) {
+            // Include packets within 5 minutes before and after the call
+            const timeWindow = 5 * 60 * 1000; // 5 minutes in ms
+            const windowStart = callStartTime - timeWindow;
+            const windowEnd = (callEndTime || callStartTime) + timeWindow;
+
+            packetData.forEach(packet => {
+                // Try to parse packet timestamp (format may vary)
+                let packetTime = null;
+                if (packet.time || packet.timestamp || packet.Time || packet.Timestamp) {
+                    const timeStr = packet.time || packet.timestamp || packet.Time || packet.Timestamp;
+                    packetTime = analyzer.parseTimestamp(timeStr);
+                }
+
+                if (packetTime && packetTime >= windowStart && packetTime <= windowEnd) {
+                    events.push({
+                        timestamp: packetTime,
+                        timestampStr: packet.time || packet.timestamp || packet.Time || packet.Timestamp,
+                        type: 'packet',
+                        subtype: packet.protocol || packet.Protocol || 'Unknown',
+                        participants: [
+                            packet.source || packet.Source || packet['Source IP'] || 'Unknown',
+                            packet.destination || packet.Destination || packet['Destination IP'] || 'Unknown'
+                        ],
+                        location: null,
+                        data: packet,
+                        callId: call.callId
+                    });
+                }
+            });
+        }
+    }
+
+    // Sort all events by timestamp
+    events.sort((a, b) => a.timestamp - b.timestamp);
+
+    return events;
+}
+
+// Apply filters to timeline events
+function applyTimelineFilters(events, filters) {
+    return events.filter(event => {
+        // Filter by event type
+        if (filters.eventTypes && filters.eventTypes.length > 0) {
+            if (!filters.eventTypes.includes(event.type)) {
+                return false;
+            }
+        }
+
+        // Filter by time range
+        if (filters.startTime && event.timestamp < filters.startTime) {
+            return false;
+        }
+        if (filters.endTime && event.timestamp > filters.endTime) {
+            return false;
+        }
+
+        // Filter by participant
+        if (filters.participant) {
+            const normalizedFilter = normalizePhone(filters.participant);
+            const hasParticipant = event.participants.some(p =>
+                normalizePhone(p).includes(normalizedFilter)
+            );
+            if (!hasParticipant) {
+                return false;
+            }
+        }
+
+        // Filter by location
+        if (filters.location && event.location) {
+            if (!event.location.includes(filters.location)) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+}
+
+// Render individual timeline event
+function renderTimelineEvent(event, analyzer) {
+    const icons = {
+        'call': '📞',
+        'sms': '💬',
+        'packet': '📦'
+    };
+
+    const icon = icons[event.type] || '•';
+    const typeLabel = capitalize(event.type);
+    const subtypeLabel = event.subtype || 'Unknown';
+
+    let participants = '';
+    if (event.participants && event.participants.length > 0) {
+        participants = event.participants
+            .filter(p => p && p !== 'Unknown')
+            .map(p => `<span class="participant-chip">${p}</span>`)
+            .join(' → ');
+    }
+
+    let locationHTML = '';
+    if (event.location) {
+        locationHTML = `<div class="timeline-location">📍 ${event.location}</div>`;
+    }
+
+    let detailsHTML = '';
+    if (event.type === 'sms' && event.data.content) {
+        detailsHTML = `<div class="timeline-event-details">${truncate(event.data.content, 100)}</div>`;
+    } else if (event.type === 'packet' && event.data.info) {
+        detailsHTML = `<div class="timeline-event-details">${truncate(event.data.info, 100)}</div>`;
+    }
+
+    return `
+        <div class="timeline-event" data-type="${event.type}">
+            <div class="timeline-event-header">
+                <span class="timeline-icon">${icon}</span>
+                <span class="timeline-time">${event.timestampStr}</span>
+                <span class="timeline-type">${typeLabel} - ${subtypeLabel}</span>
+            </div>
+            ${participants ? `<div class="timeline-participants">${participants}</div>` : ''}
+            ${locationHTML}
+            ${detailsHTML}
+        </div>
+    `;
+}
+
+// Render timeline visualization with filters
+function renderTimelineVisualization(call, analyzer, options = {}) {
+    const includePackets = options.includePackets || false;
+    const allEvents = buildUnifiedTimeline(call, analyzer, includePackets);
+
+    if (allEvents.length === 0) {
+        return '<p class="no-data">No timeline events available for this call.</p>';
+    }
+
+    // Get unique participants for filter dropdown
+    const uniqueParticipants = new Set();
+    allEvents.forEach(event => {
+        event.participants.forEach(p => {
+            if (p && p !== 'Unknown') {
+                uniqueParticipants.add(p);
+            }
+        });
+    });
+
+    // Get unique locations for filter dropdown
+    const uniqueLocations = new Set();
+    allEvents.forEach(event => {
+        if (event.location) {
+            uniqueLocations.add(event.location);
+        }
+    });
+
+    // Get time range
+    const minTime = allEvents[0].timestamp;
+    const maxTime = allEvents[allEvents.length - 1].timestamp;
+
+    // Build filter controls HTML
+    const filterChipsHTML = `
+        <div class="filter-chips">
+            <button class="filter-chip active" data-filter="all">All Events</button>
+            <button class="filter-chip" data-filter="call">📞 Calls</button>
+            <button class="filter-chip" data-filter="sms">💬 SMS/MMS</button>
+            ${includePackets ? '<button class="filter-chip" data-filter="packet">📦 Packets</button>' : ''}
+        </div>
+    `;
+
+    const participantOptions = Array.from(uniqueParticipants)
+        .map(p => `<option value="${p}">${p}</option>`)
+        .join('');
+
+    const locationOptions = Array.from(uniqueLocations)
+        .map(loc => `<option value="${loc}">${loc}</option>`)
+        .join('');
+
+    const filterControlsHTML = `
+        <div class="timeline-controls">
+            ${filterChipsHTML}
+            <div class="timeline-filters">
+                ${uniqueParticipants.size > 0 ? `
+                    <select class="timeline-filter-select" id="timelineParticipantFilter">
+                        <option value="">All Participants</option>
+                        ${participantOptions}
+                    </select>
+                ` : ''}
+                ${uniqueLocations.size > 0 ? `
+                    <select class="timeline-filter-select" id="timelineLocationFilter">
+                        <option value="">All Locations</option>
+                        ${locationOptions}
+                    </select>
+                ` : ''}
+            </div>
+            <div class="timeline-stats">
+                <span id="timelineEventCount">${allEvents.length} events</span>
+            </div>
+        </div>
+    `;
+
+    // Render all events
+    const eventsHTML = allEvents.map(event => renderTimelineEvent(event, analyzer)).join('');
+
+    return `
+        <div class="timeline-visualization" id="timelineVisualization">
+            ${filterControlsHTML}
+            <div class="timeline-events-list" id="timelineEventsList">
+                ${eventsHTML}
+            </div>
+        </div>
+    `;
+}
+
+// ============================================================================
+// ADVANCED SEARCH & FILTER FUNCTIONS
+// ============================================================================
+
+// Global search index storage
+let globalSearchIndex = null;
+
+// Build comprehensive search index from all data
+function buildGlobalSearchIndex(analyzer, packetData = []) {
+    const index = {
+        phoneNumbers: new Map(),    // phone -> [{callId, context, timestamp, type}]
+        keywords: new Map(),         // keyword -> [{callId, context, timestamp, type}]
+        ipAddresses: new Map(),      // ip -> [{context, timestamp, type}]
+        deviceIds: new Map(),        // device -> [{callId, context, timestamp}]
+        locations: new Map()         // location -> [{callId, context, timestamp}]
+    };
+
+    // Index calls
+    if (analyzer && analyzer.calls) {
+        for (const [callId, call] of analyzer.calls) {
+            // Index phone numbers from calling and called parties
+            const callingNumber = call.callingParty?.number || call.callingParty?.phoneNumber;
+            const calledNumber = call.calledParty?.number || call.calledParty?.phoneNumber;
+
+            if (callingNumber) {
+                addToIndex(index.phoneNumbers, normalizePhone(callingNumber), {
+                    callId: callId,
+                    context: `Calling party in ${call.callType}`,
+                    timestamp: analyzer.parseTimestamp(call.startTime),
+                    type: 'calling'
+                });
+            }
+
+            if (calledNumber) {
+                addToIndex(index.phoneNumbers, normalizePhone(calledNumber), {
+                    callId: callId,
+                    context: `Called party in ${call.callType}`,
+                    timestamp: analyzer.parseTimestamp(call.startTime),
+                    type: 'called'
+                });
+            }
+
+            // Index SMS content keywords
+            if (call.smsData && call.smsData.length > 0) {
+                call.smsData.forEach(sms => {
+                    // Index phone numbers from SMS
+                    if (sms.from) {
+                        addToIndex(index.phoneNumbers, normalizePhone(sms.from), {
+                            callId: callId,
+                            context: `SMS sender`,
+                            timestamp: analyzer.parseTimestamp(sms.timestamp),
+                            type: 'sms_from'
+                        });
+                    }
+                    if (sms.to) {
+                        addToIndex(index.phoneNumbers, normalizePhone(sms.to), {
+                            callId: callId,
+                            context: `SMS recipient`,
+                            timestamp: analyzer.parseTimestamp(sms.timestamp),
+                            type: 'sms_to'
+                        });
+                    }
+
+                    // Index keywords from SMS content
+                    if (sms.content) {
+                        const keywords = extractKeywords(sms.content);
+                        keywords.forEach(keyword => {
+                            addToIndex(index.keywords, keyword, {
+                                callId: callId,
+                                context: `SMS: "${truncate(sms.content, 80)}"`,
+                                timestamp: analyzer.parseTimestamp(sms.timestamp),
+                                type: 'sms'
+                            });
+                        });
+                    }
+                });
+            }
+
+            // Index device IDs (User-Agent, device info)
+            if (call.deviceInfo) {
+                const deviceString = call.deviceInfo.userAgent ||
+                                   call.deviceInfo.deviceType ||
+                                   call.deviceInfo.manufacturer;
+                if (deviceString) {
+                    addToIndex(index.deviceIds, deviceString.toLowerCase(), {
+                        callId: callId,
+                        context: `Device: ${deviceString}`,
+                        timestamp: analyzer.parseTimestamp(call.startTime),
+                        type: 'device'
+                    });
+                }
+            }
+
+            // Index locations (LAC-CID)
+            if (call.locations && call.locations.length > 0) {
+                call.locations.forEach(loc => {
+                    if (loc.parsed) {
+                        const lacCidKey = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+                        addToIndex(index.locations, lacCidKey, {
+                            callId: callId,
+                            context: `Cell Tower: LAC ${loc.parsed.lac}, CID ${loc.parsed.cellId}`,
+                            timestamp: analyzer.parseTimestamp(loc.timestamp),
+                            type: 'location'
+                        });
+
+                        // Also index just LAC for broader searches
+                        if (loc.parsed.lac) {
+                            addToIndex(index.locations, `lac:${loc.parsed.lac}`, {
+                                callId: callId,
+                                context: `Location Area Code: ${loc.parsed.lac}`,
+                                timestamp: analyzer.parseTimestamp(loc.timestamp),
+                                type: 'lac'
+                            });
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    // Index packet data
+    if (packetData && packetData.length > 0) {
+        packetData.forEach((packet, idx) => {
+            // Index source IP
+            const sourceIp = packet.source || packet.Source || packet['Source IP'];
+            if (sourceIp) {
+                addToIndex(index.ipAddresses, sourceIp.toLowerCase(), {
+                    context: `Packet source: ${packet.protocol || 'Unknown'} protocol`,
+                    timestamp: analyzer?.parseTimestamp(packet.time || packet.timestamp) || null,
+                    type: 'source_ip',
+                    packetIndex: idx
+                });
+            }
+
+            // Index destination IP
+            const destIp = packet.destination || packet.Destination || packet['Destination IP'];
+            if (destIp) {
+                addToIndex(index.ipAddresses, destIp.toLowerCase(), {
+                    context: `Packet destination: ${packet.protocol || 'Unknown'} protocol`,
+                    timestamp: analyzer?.parseTimestamp(packet.time || packet.timestamp) || null,
+                    type: 'dest_ip',
+                    packetIndex: idx
+                });
+            }
+        });
+    }
+
+    return index;
+}
+
+// Perform global search across all indexed data
+function performGlobalSearch(searchTerm, index) {
+    if (!searchTerm || !index) return [];
+
+    const results = [];
+    const normalizedTerm = searchTerm.toLowerCase().trim();
+
+    // Search phone numbers (partial match)
+    if (index.phoneNumbers.size > 0) {
+        for (const [phone, entries] of index.phoneNumbers) {
+            if (phone.includes(normalizedTerm) || normalizedTerm.includes(phone)) {
+                entries.forEach(entry => {
+                    results.push({
+                        matchType: 'phone',
+                        matchValue: phone,
+                        ...entry
+                    });
+                });
+            }
+        }
+    }
+
+    // Search keywords (exact word match)
+    if (index.keywords.size > 0) {
+        const searchWords = extractKeywords(normalizedTerm);
+        searchWords.forEach(word => {
+            if (index.keywords.has(word)) {
+                const entries = index.keywords.get(word);
+                entries.forEach(entry => {
+                    results.push({
+                        matchType: 'keyword',
+                        matchValue: word,
+                        ...entry
+                    });
+                });
+            }
+        });
+    }
+
+    // Search IP addresses (substring match)
+    if (index.ipAddresses.size > 0) {
+        for (const [ip, entries] of index.ipAddresses) {
+            if (ip.includes(normalizedTerm)) {
+                entries.forEach(entry => {
+                    results.push({
+                        matchType: 'ip',
+                        matchValue: ip,
+                        ...entry
+                    });
+                });
+            }
+        }
+    }
+
+    // Search device IDs (substring match)
+    if (index.deviceIds.size > 0) {
+        for (const [deviceId, entries] of index.deviceIds) {
+            if (deviceId.includes(normalizedTerm)) {
+                entries.forEach(entry => {
+                    results.push({
+                        matchType: 'device',
+                        matchValue: deviceId,
+                        ...entry
+                    });
+                });
+            }
+        }
+    }
+
+    // Search locations (LAC or CID match)
+    if (index.locations.size > 0) {
+        for (const [location, entries] of index.locations) {
+            if (location.includes(normalizedTerm)) {
+                entries.forEach(entry => {
+                    results.push({
+                        matchType: 'location',
+                        matchValue: location,
+                        ...entry
+                    });
+                });
+            }
+        }
+    }
+
+    // Sort by timestamp (most recent first)
+    results.sort((a, b) => {
+        const timeA = a.timestamp || 0;
+        const timeB = b.timestamp || 0;
+        return timeB - timeA;
+    });
+
+    return results;
+}
+
+// Display search results
+function displaySearchResults(results, searchTerm) {
+    const container = document.getElementById('searchResultsContainer');
+    if (!container) return;
+
+    if (results.length === 0) {
+        container.innerHTML = `
+            <div class="search-results-empty">
+                <p>No results found for "${searchTerm}"</p>
+            </div>
+        `;
+        container.style.display = 'block';
+        return;
+    }
+
+    // Group results by match type
+    const grouped = groupBy(results, r => r.matchType);
+
+    const matchTypeLabels = {
+        'phone': '📞 Phone Numbers',
+        'keyword': '💬 Keywords',
+        'ip': '🌐 IP Addresses',
+        'device': '📱 Devices',
+        'location': '📍 Locations'
+    };
+
+    let html = `
+        <div class="search-results-header">
+            <strong>${results.length} results found</strong> for "${searchTerm}"
+        </div>
+        <div class="search-results-groups">
+    `;
+
+    for (const [matchType, items] of Object.entries(grouped)) {
+        const label = matchTypeLabels[matchType] || capitalize(matchType);
+        const displayLimit = 20;
+        const hasMore = items.length > displayLimit;
+        const displayItems = items.slice(0, displayLimit);
+
+        html += `
+            <div class="search-group">
+                <div class="search-group-title">${label} (${items.length})</div>
+                <div class="search-group-items">
+        `;
+
+        displayItems.forEach(item => {
+            const timeStr = item.timestamp ?
+                new Date(item.timestamp).toLocaleString() :
+                'Unknown time';
+
+            html += `
+                <div class="search-result-item" data-call-id="${item.callId || ''}" data-packet-index="${item.packetIndex || ''}">
+                    <div class="search-result-match">
+                        <strong>${item.matchValue}</strong>
+                    </div>
+                    <div class="search-result-context">${item.context}</div>
+                    <div class="search-result-time">${timeStr}</div>
+                </div>
+            `;
+        });
+
+        if (hasMore) {
+            html += `<div class="search-more-indicator">... ${items.length - displayLimit} more results</div>`;
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+    container.style.display = 'block';
+
+    // Add click handlers for navigation
+    container.querySelectorAll('.search-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const callId = item.getAttribute('data-call-id');
+            if (callId && callId !== 'null' && callId !== '') {
+                // Switch to that call
+                const selector = document.getElementById('callSelector');
+                if (selector) {
+                    selector.value = callId;
+                    switchCall(callId);
+                }
+            }
+        });
+    });
+}
+
+// Setup search bar with debounced search
+function setupSearchBar() {
+    const searchInput = document.getElementById('globalSearchInput');
+    const searchButton = document.getElementById('globalSearchButton');
+    const clearButton = document.getElementById('globalSearchClear');
+    const resultsContainer = document.getElementById('searchResultsContainer');
+
+    if (!searchInput || !searchButton || !clearButton) return;
+
+    const performSearch = () => {
+        const searchTerm = searchInput.value.trim();
+        if (!searchTerm) {
+            if (resultsContainer) {
+                resultsContainer.style.display = 'none';
+            }
+            return;
+        }
+
+        if (!globalSearchIndex) {
+            console.error('Search index not built');
+            return;
+        }
+
+        const results = performGlobalSearch(searchTerm, globalSearchIndex);
+        displaySearchResults(results, searchTerm);
+    };
+
+    // Debounced search on input
+    const debouncedSearch = debounce(performSearch, 300);
+    searchInput.addEventListener('input', debouncedSearch);
+
+    // Immediate search on button click or Enter key
+    searchButton.addEventListener('click', performSearch);
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+
+    // Clear button
+    clearButton.addEventListener('click', () => {
+        searchInput.value = '';
+        if (resultsContainer) {
+            resultsContainer.style.display = 'none';
+        }
+    });
+}
+
+// ============================================================================
+// CALL CORRELATION FUNCTIONS
+// ============================================================================
+
+// Detect time overlap between two calls
+function detectTimeOverlap(call1, call2, analyzer) {
+    const call1Start = analyzer.parseTimestamp(call1.answerTime || call1.startTime);
+    const call1End = analyzer.parseTimestamp(call1.endTime);
+    const call2Start = analyzer.parseTimestamp(call2.answerTime || call2.startTime);
+    const call2End = analyzer.parseTimestamp(call2.endTime);
+
+    if (!call1Start || !call2Start) return null;
+
+    // Check if calls overlap
+    const overlapStart = Math.max(call1Start, call2Start);
+    const overlapEnd = Math.min(call1End || Infinity, call2End || Infinity);
+
+    if (overlapStart < overlapEnd) {
+        const overlapDuration = Math.round((overlapEnd - overlapStart) / 1000); // seconds
+        return {
+            call1: call1,
+            call2: call2,
+            overlapDuration: overlapDuration,
+            scenario: 'Target on two calls simultaneously'
+        };
+    }
+
+    return null;
+}
+
+// Find common participants between two calls
+function findCommonParticipants(call1, call2) {
+    const participants1 = new Set();
+    const participants2 = new Set();
+
+    // Collect participants from call1
+    if (call1.callingParty?.number) participants1.add(normalizePhone(call1.callingParty.number));
+    if (call1.callingParty?.phoneNumber) participants1.add(normalizePhone(call1.callingParty.phoneNumber));
+    if (call1.calledParty?.number) participants1.add(normalizePhone(call1.calledParty.number));
+    if (call1.calledParty?.phoneNumber) participants1.add(normalizePhone(call1.calledParty.phoneNumber));
+
+    // Collect participants from call2
+    if (call2.callingParty?.number) participants2.add(normalizePhone(call2.callingParty.number));
+    if (call2.callingParty?.phoneNumber) participants2.add(normalizePhone(call2.callingParty.phoneNumber));
+    if (call2.calledParty?.number) participants2.add(normalizePhone(call2.calledParty.number));
+    if (call2.calledParty?.phoneNumber) participants2.add(normalizePhone(call2.calledParty.phoneNumber));
+
+    // Find intersection
+    const common = [];
+    participants1.forEach(p => {
+        if (participants2.has(p)) {
+            common.push(p);
+        }
+    });
+
+    return common;
+}
+
+// Find common cell towers between two calls
+function findCommonTowers(call1, call2) {
+    if (!call1.locations || !call2.locations) return [];
+
+    const towers1 = new Map();
+    const towers2 = new Map();
+
+    // Build tower maps
+    call1.locations.forEach(loc => {
+        if (loc.parsed?.lac && loc.parsed?.cellId) {
+            const key = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+            towers1.set(key, {
+                lac: loc.parsed.lac,
+                cellId: loc.parsed.cellId,
+                timestamp: loc.timestamp
+            });
+        }
+    });
+
+    call2.locations.forEach(loc => {
+        if (loc.parsed?.lac && loc.parsed?.cellId) {
+            const key = `${loc.parsed.lac}-${loc.parsed.cellId}`;
+            towers2.set(key, {
+                lac: loc.parsed.lac,
+                cellId: loc.parsed.cellId,
+                timestamp: loc.timestamp
+            });
+        }
+    });
+
+    // Find common towers
+    const common = [];
+    towers1.forEach((tower, key) => {
+        if (towers2.has(key)) {
+            common.push({
+                lac: tower.lac,
+                cellId: tower.cellId,
+                key: key
+            });
+        }
+    });
+
+    return common;
+}
+
+// Detect call forwarding sequences
+function detectCallForwardingSequences(callArray, analyzer) {
+    const sequences = [];
+
+    // Sort calls by start time
+    const sortedCalls = [...callArray].sort((a, b) => {
+        const timeA = analyzer.parseTimestamp(a.startTime) || 0;
+        const timeB = analyzer.parseTimestamp(b.startTime) || 0;
+        return timeA - timeB;
+    });
+
+    // Check consecutive calls for forwarding pattern
+    for (let i = 0; i < sortedCalls.length - 1; i++) {
+        const call1 = sortedCalls[i];
+        const call2 = sortedCalls[i + 1];
+
+        const call1End = analyzer.parseTimestamp(call1.endTime || call1.startTime);
+        const call2Start = analyzer.parseTimestamp(call2.startTime);
+
+        if (!call1End || !call2Start) continue;
+
+        // Check if calls are within 30 seconds
+        const timeDiff = (call2Start - call1End) / 1000; // seconds
+        if (timeDiff >= 0 && timeDiff <= 30) {
+            // Check if called party of call1 becomes calling party of call2
+            const call1Called = normalizePhone(call1.calledParty?.number || call1.calledParty?.phoneNumber || '');
+            const call2Calling = normalizePhone(call2.callingParty?.number || call2.callingParty?.phoneNumber || '');
+
+            if (call1Called && call2Calling && call1Called === call2Calling) {
+                sequences.push({
+                    call1: call1,
+                    call2: call2,
+                    timeDiff: Math.round(timeDiff),
+                    forwardingNumber: call1Called
+                });
+            }
+        }
+    }
+
+    return sequences;
+}
+
+// Main correlation orchestrator - finds all types of correlations
+function findCallCorrelations(calls, analyzer) {
+    const correlations = {
+        timeOverlaps: [],
+        commonParticipants: [],
+        sameTowers: [],
+        callForwarding: []
+    };
+
+    if (!calls || calls.size < 2) {
+        return correlations;
+    }
+
+    const callArray = Array.from(calls.values());
+
+    // Check all pairs for time overlap, common participants, and same towers
+    for (let i = 0; i < callArray.length; i++) {
+        for (let j = i + 1; j < callArray.length; j++) {
+            const call1 = callArray[i];
+            const call2 = callArray[j];
+
+            // Check time overlap
+            const overlap = detectTimeOverlap(call1, call2, analyzer);
+            if (overlap) {
+                correlations.timeOverlaps.push(overlap);
+            }
+
+            // Check common participants
+            const commonParticipants = findCommonParticipants(call1, call2);
+            if (commonParticipants.length > 0) {
+                correlations.commonParticipants.push({
+                    call1: call1,
+                    call2: call2,
+                    participants: commonParticipants
+                });
+            }
+
+            // Check common towers
+            const commonTowers = findCommonTowers(call1, call2);
+            if (commonTowers.length > 0) {
+                correlations.sameTowers.push({
+                    call1: call1,
+                    call2: call2,
+                    towers: commonTowers
+                });
+            }
+        }
+    }
+
+    // Check for call forwarding sequences
+    correlations.callForwarding = detectCallForwardingSequences(callArray, analyzer);
+
+    return correlations;
+}
+
+// Display call correlations
+function displayCallCorrelations(correlations, analyzer) {
+    if (!correlations) {
+        return '<p class="no-data">No correlation data available.</p>';
+    }
+
+    const totalCorrelations = correlations.timeOverlaps.length +
+                            correlations.commonParticipants.length +
+                            correlations.sameTowers.length +
+                            correlations.callForwarding.length;
+
+    if (totalCorrelations === 0) {
+        return '<p class="no-data">No significant correlations detected between calls.</p>';
+    }
+
+    let html = '<div class="correlation-analysis">';
+
+    // Summary cards
+    html += `
+        <div class="correlation-summary">
+            <div class="correlation-summary-card">
+                <div class="correlation-summary-count">${correlations.timeOverlaps.length}</div>
+                <div class="correlation-summary-label">Time Overlaps</div>
+            </div>
+            <div class="correlation-summary-card">
+                <div class="correlation-summary-count">${correlations.commonParticipants.length}</div>
+                <div class="correlation-summary-label">Common Participants</div>
+            </div>
+            <div class="correlation-summary-card">
+                <div class="correlation-summary-count">${correlations.sameTowers.length}</div>
+                <div class="correlation-summary-label">Same Towers</div>
+            </div>
+            <div class="correlation-summary-card">
+                <div class="correlation-summary-count">${correlations.callForwarding.length}</div>
+                <div class="correlation-summary-label">Call Forwarding</div>
+            </div>
+        </div>
+    `;
+
+    // Time Overlaps
+    if (correlations.timeOverlaps.length > 0) {
+        html += '<div class="correlation-section">';
+        html += '<h3 class="correlation-section-title">⏱️ Time Overlaps</h3>';
+        html += '<div class="correlation-list">';
+        correlations.timeOverlaps.forEach(overlap => {
+            html += `
+                <div class="correlation-card">
+                    <div class="correlation-header">
+                        <strong>${overlap.scenario}</strong>
+                    </div>
+                    <div class="correlation-details">
+                        <div class="correlation-call">
+                            📞 Call 1: ${overlap.call1.callingParty?.phoneNumber || 'Unknown'} → ${overlap.call1.calledParty?.phoneNumber || 'Unknown'}
+                            <br><small>${analyzer.formatTimestamp(overlap.call1.startTime)} - ${analyzer.formatTimestamp(overlap.call1.endTime)}</small>
+                        </div>
+                        <div class="correlation-call">
+                            📞 Call 2: ${overlap.call2.callingParty?.phoneNumber || 'Unknown'} → ${overlap.call2.calledParty?.phoneNumber || 'Unknown'}
+                            <br><small>${analyzer.formatTimestamp(overlap.call2.startTime)} - ${analyzer.formatTimestamp(overlap.call2.endTime)}</small>
+                        </div>
+                        <div class="correlation-stat">Overlap Duration: <strong>${overlap.overlapDuration} seconds</strong></div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div></div>';
+    }
+
+    // Common Participants
+    if (correlations.commonParticipants.length > 0) {
+        html += '<div class="correlation-section">';
+        html += '<h3 class="correlation-section-title">👥 Common Participants</h3>';
+        html += '<div class="correlation-list">';
+        correlations.commonParticipants.forEach(item => {
+            html += `
+                <div class="correlation-card">
+                    <div class="correlation-header">
+                        <strong>Shared Contact</strong>
+                    </div>
+                    <div class="correlation-details">
+                        <div class="correlation-call">
+                            📞 Call 1: ${item.call1.callingParty?.phoneNumber || 'Unknown'} → ${item.call1.calledParty?.phoneNumber || 'Unknown'}
+                        </div>
+                        <div class="correlation-call">
+                            📞 Call 2: ${item.call2.callingParty?.phoneNumber || 'Unknown'} → ${item.call2.calledParty?.phoneNumber || 'Unknown'}
+                        </div>
+                        <div class="correlation-stat">
+                            Common Numbers: ${item.participants.map(p => `<span class="participant-chip">${p}</span>`).join(' ')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div></div>';
+    }
+
+    // Same Towers
+    if (correlations.sameTowers.length > 0) {
+        html += '<div class="correlation-section">';
+        html += '<h3 class="correlation-section-title">📡 Same Cell Towers</h3>';
+        html += '<div class="correlation-list">';
+        correlations.sameTowers.forEach(item => {
+            html += `
+                <div class="correlation-card">
+                    <div class="correlation-header">
+                        <strong>Same Location</strong>
+                    </div>
+                    <div class="correlation-details">
+                        <div class="correlation-call">
+                            📞 Call 1: ${item.call1.callingParty?.phoneNumber || 'Unknown'} → ${item.call1.calledParty?.phoneNumber || 'Unknown'}
+                        </div>
+                        <div class="correlation-call">
+                            📞 Call 2: ${item.call2.callingParty?.phoneNumber || 'Unknown'} → ${item.call2.calledParty?.phoneNumber || 'Unknown'}
+                        </div>
+                        <div class="correlation-stat">
+                            Common Towers: ${item.towers.map(t => `LAC ${t.lac}, CID ${t.cellId}`).join(' | ')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div></div>';
+    }
+
+    // Call Forwarding
+    if (correlations.callForwarding.length > 0) {
+        html += '<div class="correlation-section">';
+        html += '<h3 class="correlation-section-title">↪️ Call Forwarding Sequences</h3>';
+        html += '<div class="correlation-list">';
+        correlations.callForwarding.forEach(seq => {
+            html += `
+                <div class="correlation-card">
+                    <div class="correlation-header">
+                        <strong>Possible Call Forward</strong>
+                    </div>
+                    <div class="correlation-details">
+                        <div class="correlation-call">
+                            📞 First Call: ${seq.call1.callingParty?.phoneNumber || 'Unknown'} → <strong>${seq.forwardingNumber}</strong>
+                            <br><small>Ended: ${analyzer.formatTimestamp(seq.call1.endTime)}</small>
+                        </div>
+                        <div class="correlation-call">
+                            📞 Second Call: <strong>${seq.forwardingNumber}</strong> → ${seq.call2.calledParty?.phoneNumber || 'Unknown'}
+                            <br><small>Started: ${analyzer.formatTimestamp(seq.call2.startTime)}</small>
+                        </div>
+                        <div class="correlation-stat">Time Gap: <strong>${seq.timeDiff} seconds</strong></div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div></div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// Setup event handlers for timeline filters
+function setupTimelineEventHandlers() {
+    const visualization = document.getElementById('timelineVisualization');
+    if (!visualization) return;
+
+    // Store original events data
+    const eventsList = document.getElementById('timelineEventsList');
+    if (!eventsList) return;
+
+    const allEventElements = eventsList.querySelectorAll('.timeline-event');
+    let activeFilters = {
+        eventTypes: [],
+        participant: '',
+        location: ''
+    };
+
+    // Update display based on active filters
+    function updateDisplay() {
+        let visibleCount = 0;
+        allEventElements.forEach(eventEl => {
+            const eventType = eventEl.getAttribute('data-type');
+            let visible = true;
+
+            // Check event type filter
+            if (activeFilters.eventTypes.length > 0 && !activeFilters.eventTypes.includes(eventType)) {
+                visible = false;
+            }
+
+            // Check participant filter (search in text content)
+            if (visible && activeFilters.participant) {
+                const participantSection = eventEl.querySelector('.timeline-participants');
+                if (!participantSection || !participantSection.textContent.includes(activeFilters.participant)) {
+                    visible = false;
+                }
+            }
+
+            // Check location filter
+            if (visible && activeFilters.location) {
+                const locationSection = eventEl.querySelector('.timeline-location');
+                if (!locationSection || !locationSection.textContent.includes(activeFilters.location)) {
+                    visible = false;
+                }
+            }
+
+            eventEl.style.display = visible ? 'block' : 'none';
+            if (visible) visibleCount++;
+        });
+
+        // Update count
+        const countEl = document.getElementById('timelineEventCount');
+        if (countEl) {
+            countEl.textContent = `${visibleCount} of ${allEventElements.length} events`;
+        }
+    }
+
+    // Filter chip click handlers
+    const filterChips = visualization.querySelectorAll('.filter-chip');
+    filterChips.forEach(chip => {
+        chip.addEventListener('click', () => {
+            const filterType = chip.getAttribute('data-filter');
+
+            if (filterType === 'all') {
+                // Reset event type filter
+                activeFilters.eventTypes = [];
+                filterChips.forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+            } else {
+                // Toggle specific event type
+                const allChip = visualization.querySelector('.filter-chip[data-filter="all"]');
+                allChip.classList.remove('active');
+
+                if (chip.classList.contains('active')) {
+                    chip.classList.remove('active');
+                    activeFilters.eventTypes = activeFilters.eventTypes.filter(t => t !== filterType);
+
+                    // If no chips active, activate "All"
+                    if (activeFilters.eventTypes.length === 0) {
+                        allChip.classList.add('active');
+                    }
+                } else {
+                    chip.classList.add('active');
+                    activeFilters.eventTypes.push(filterType);
+                }
+            }
+
+            updateDisplay();
+        });
+    });
+
+    // Participant filter
+    const participantFilter = document.getElementById('timelineParticipantFilter');
+    if (participantFilter) {
+        participantFilter.addEventListener('change', (e) => {
+            activeFilters.participant = e.target.value;
+            updateDisplay();
+        });
+    }
+
+    // Location filter
+    const locationFilter = document.getElementById('timelineLocationFilter');
+    if (locationFilter) {
+        locationFilter.addEventListener('change', (e) => {
+            activeFilters.location = e.target.value;
+            updateDisplay();
+        });
+    }
+}
+
 // Explicitly expose functions to the global scope to ensure buttons work
 window.analyzeCDC = analyzeCDC;
 window.switchCall = switchCall;
@@ -3284,4 +4532,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-console.log("CDC Analyzer script v1.3 (build 2026-01-29-ecgi12) loaded and ready (Supabase Cloud Support).");
+console.log("CDC Analyzer script v2.0 (build 2026-02-10-timeline-search-correlation) loaded and ready (Timeline Visualization, Advanced Search, Call Correlation).");

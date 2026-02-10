@@ -1051,6 +1051,9 @@ function setupCollapsibles() {
                 section.classList.toggle('expanded', !isOpen);
                 section.classList.toggle('collapsed', isOpen);
             }
+            if (!isOpen && target === 'call-geo-map' && window.callLocationMap) {
+                setTimeout(() => window.callLocationMap.invalidateSize(), 50);
+            }
         });
     });
 }
@@ -5274,6 +5277,11 @@ function initializeCallLocationMap(locations) {
     const mapContainer = document.getElementById('callLocationMap');
     if (!mapContainer || locations.length === 0) return;
 
+    if (window.callLocationMap) {
+        window.callLocationMap.remove();
+        window.callLocationMap = null;
+    }
+
     // Clear any existing map
     mapContainer.innerHTML = '';
 
@@ -5283,6 +5291,7 @@ function initializeCallLocationMap(locations) {
 
     // Create map
     const map = L.map('callLocationMap').setView([avgLat, avgLon], 10);
+    window.callLocationMap = map;
 
     // Add tile layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

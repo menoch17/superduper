@@ -1052,10 +1052,8 @@ function setupCollapsibles() {
                 section.classList.toggle('collapsed', isOpen);
             }
             if (!isOpen && target === 'call-geo-map') {
-                if (!window.callLocationMap && window.lastCallLocations?.length) {
+                if (window.lastCallLocations?.length) {
                     setTimeout(() => initializeCallLocationMap(window.lastCallLocations), 50);
-                } else if (window.callLocationMap) {
-                    setTimeout(() => window.callLocationMap.invalidateSize(), 50);
                 }
             }
         });
@@ -5270,10 +5268,7 @@ function displayCallAnalysis(analysis) {
     resultsDiv.innerHTML = sections.join('');
     setupCollapsibles();
 
-    // Initialize geographic map if locations exist
-    if (analysis.locations.length > 0) {
-        setTimeout(() => initializeCallLocationMap(analysis.locations), 100);
-    }
+    // Map init happens on expand to ensure the container is in the DOM
 
     // Show contact search container
     const contactSearchContainer = document.getElementById('callContactSearchContainer');
@@ -5284,7 +5279,7 @@ function displayCallAnalysis(analysis) {
 
 function initializeCallLocationMap(locations) {
     const mapContainer = document.getElementById('callLocationMap');
-    if (!mapContainer || locations.length === 0) return;
+    if (!mapContainer || !mapContainer.isConnected || locations.length === 0) return;
 
     const validLocations = locations.filter(loc =>
         Number.isFinite(loc.lat) && Number.isFinite(loc.lon)
@@ -5304,7 +5299,7 @@ function initializeCallLocationMap(locations) {
     const avgLon = validLocations.reduce((sum, loc) => sum + loc.lon, 0) / validLocations.length;
 
     // Create map
-    const map = L.map('callLocationMap').setView([avgLat, avgLon], 10);
+    const map = L.map(mapContainer).setView([avgLat, avgLon], 10);
     window.callLocationMap = map;
 
     // Add tile layer

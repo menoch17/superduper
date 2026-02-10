@@ -4848,6 +4848,18 @@ function analyzeCallData() {
     displayCallAnalysis(window.callAnalysisViews[mode], mode);
 }
 
+function getCallAnalysisExpandedState() {
+    const state = new Map();
+    document.querySelectorAll('.collapsible-section').forEach(section => {
+        const content = section.querySelector('.collapsible-content[data-content]');
+        if (!content) return;
+        const key = content.getAttribute('data-content');
+        const isOpen = section.classList.contains('expanded');
+        state.set(key, isOpen);
+    });
+    return state;
+}
+
 function buildCallAnalysis(data) {
     // Group by content type first
     const byContentType = new Map();
@@ -4966,9 +4978,11 @@ function buildCallAnalysis(data) {
         const imei = call['IMEI'];
         if (imei) {
             if (!analysis.imeiData.has(imei)) {
-                analysis.imeiData.set(imei, { count: 0, phoneOS: call['Phone OS'] || 'Unknown' });
+                analysis.imeiData.set(imei, { count: 0, phoneOS: call['Phone OS'] || 'Unknown', numbers: new Set() });
             }
-            analysis.imeiData.get(imei).count++;
+            const imeiData = analysis.imeiData.get(imei);
+            imeiData.count++;
+            if (contact) imeiData.numbers.add(contact);
         }
 
         // IMSI analysis
@@ -5032,6 +5046,7 @@ function formatDurationFromSeconds(seconds) {
 }
 
 function displayCallAnalysis(analysis, mode = 'calls') {
+    const expandedState = getCallAnalysisExpandedState();
     const resultsDiv = document.getElementById('callResults');
     resultsDiv.style.display = 'block';
     resultsDiv.className = 'results-container active';
@@ -5056,7 +5071,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         `;
     });
     contentTypeHTML += '</div>';
-    sections.push(createCollapsibleSection('Content Type Breakdown', toggleHTML + contentTypeHTML, true, 'call-content-types'));
+    sections.push(createCollapsibleSection(
+        'Content Type Breakdown',
+        toggleHTML + contentTypeHTML,
+        expandedState.get('call-content-types') ?? true,
+        'call-content-types'
+    ));
 
     // Overview Section
     const overviewHTML = `
@@ -5082,7 +5102,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
             </div>
         </div>
     `;
-    sections.push(createCollapsibleSection('Call Overview', toggleHTML + overviewHTML, true, 'call-overview'));
+    sections.push(createCollapsibleSection(
+        'Call Overview',
+        toggleHTML + overviewHTML,
+        expandedState.get('call-overview') ?? true,
+        'call-overview'
+    ));
 
     // Top Contacts Section
     const topContacts = Array.from(analysis.contacts.entries())
@@ -5111,7 +5136,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     });
 
     contactsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('Top 20 Contacts', toggleHTML + contactsHTML, true, 'call-contacts'));
+    sections.push(createCollapsibleSection(
+        'Top 20 Contacts',
+        toggleHTML + contactsHTML,
+        expandedState.get('call-contacts') ?? true,
+        'call-contacts'
+    ));
 
     // Carrier Distribution
     const carrierEntries = Array.from(analysis.carriers.entries()).sort((a, b) => b[1] - a[1]);
@@ -5128,46 +5158,55 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         `;
     });
     carrierHTML += '</div>';
-    sections.push(createCollapsibleSection('Carrier Distribution', toggleHTML + carrierHTML, false, 'call-carriers'));
+    sections.push(createCollapsibleSection(
+        'Carrier Distribution',
+        toggleHTML + carrierHTML,
+        expandedState.get('call-carriers') ?? false,
+        'call-carriers'
+    ));
 
     // Hourly Distribution
-    let hourlyHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    hourlyHTML += '<thead><tr><th>Hour</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
-    const maxHourly = Math.max(...analysis.hourlyDistribution);
+    const maxHourly = Math.max(...analysis.hourlyDistribution, 1);
+    let hourlyHTML = '<div style="overflow-x: auto;">';
+    hourlyHTML += '<div style="display: flex; align-items: flex-end; gap: 6px; height: 140px; padding: 10px 0;">';
     analysis.hourlyDistribution.forEach((count, hour) => {
-        const barWidth = maxHourly > 0 ? (count / maxHourly) * 100 : 0;
+        const height = Math.max(4, Math.round((count / maxHourly) * 120));
         hourlyHTML += `
-            <tr>
-                <td style="padding: 8px;">${String(hour).padStart(2, '0')}:00</td>
-                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
-                <td style="padding: 8px;">
-                    <div style="background: var(--accent-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
-                </td>
-            </tr>
+            <div style="display: flex; flex-direction: column; align-items: center; width: 18px;">
+                <div style="width: 100%; height: ${height}px; background: var(--accent-color); border-radius: 4px 4px 2px 2px;"></div>
+                <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${String(hour).padStart(2, '0')}</div>
+            </div>
         `;
     });
-    hourlyHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('Calls by Hour of Day', toggleHTML + hourlyHTML, false, 'call-hourly'));
+    hourlyHTML += '</div></div>';
+    sections.push(createCollapsibleSection(
+        'Calls by Hour of Day',
+        toggleHTML + hourlyHTML,
+        expandedState.get('call-hourly') ?? false,
+        'call-hourly'
+    ));
 
     // Day of Week Distribution
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    let dayOfWeekHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    dayOfWeekHTML += '<thead><tr><th>Day</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
-    const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution);
+    const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution, 1);
+    let dayOfWeekHTML = '<div style="overflow-x: auto;">';
+    dayOfWeekHTML += '<div style="display: flex; align-items: flex-end; gap: 10px; height: 140px; padding: 10px 0;">';
     analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
-        const barWidth = maxDayOfWeek > 0 ? (count / maxDayOfWeek) * 100 : 0;
+        const height = Math.max(6, Math.round((count / maxDayOfWeek) * 120));
         dayOfWeekHTML += `
-            <tr>
-                <td style="padding: 8px;">${daysOfWeek[dayIndex]}</td>
-                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
-                <td style="padding: 8px;">
-                    <div style="background: var(--success-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
-                </td>
-            </tr>
+            <div style="display: flex; flex-direction: column; align-items: center; width: 28px;">
+                <div style="width: 100%; height: ${height}px; background: var(--success-color); border-radius: 4px 4px 2px 2px;"></div>
+                <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${daysOfWeek[dayIndex].slice(0, 3)}</div>
+            </div>
         `;
     });
-    dayOfWeekHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('📅 Calls by Day of Week', toggleHTML + dayOfWeekHTML, false, 'call-day-of-week'));
+    dayOfWeekHTML += '</div></div>';
+    sections.push(createCollapsibleSection(
+        '📅 Calls by Day of Week',
+        toggleHTML + dayOfWeekHTML,
+        expandedState.get('call-day-of-week') ?? false,
+        'call-day-of-week'
+    ));
 
     // Daily Call Trends
     const dailyTrends = Array.from(analysis.callsByDay.entries())
@@ -5190,7 +5229,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         `;
     });
     dailyTrendsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('📊 Daily Call Trends', toggleHTML + dailyTrendsHTML, false, 'call-daily-trends'));
+    sections.push(createCollapsibleSection(
+        '📊 Daily Call Trends',
+        toggleHTML + dailyTrendsHTML,
+        expandedState.get('call-daily-trends') ?? false,
+        'call-daily-trends'
+    ));
 
     // Call Duration Trends Over Time
     const durationTrends = Array.from(analysis.durationByDay.entries())
@@ -5211,7 +5255,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         `;
     });
     durationTrendsHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('📈 Call Duration Trends', toggleHTML + durationTrendsHTML, false, 'call-duration-trends'));
+    sections.push(createCollapsibleSection(
+        '📈 Call Duration Trends',
+        toggleHTML + durationTrendsHTML,
+        expandedState.get('call-duration-trends') ?? false,
+        'call-duration-trends'
+    ));
 
     // IMEI Analysis
     if (analysis.imeiData.size > 0) {
@@ -5221,14 +5270,17 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         let imeiHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
         imeiHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
         imeiHTML += '<th style="padding: 12px; text-align: left;">IMEI</th>';
+        imeiHTML += '<th style="padding: 12px; text-align: left;">Number(s)</th>';
         imeiHTML += '<th style="padding: 12px; text-align: left;">Device/OS</th>';
         imeiHTML += '<th style="padding: 12px; text-align: right;">Usage Count</th>';
         imeiHTML += '</tr></thead><tbody>';
 
         imeiEntries.forEach(([imei, data]) => {
+            const numbers = data.numbers ? Array.from(data.numbers).slice(0, 3).join(', ') : '';
             imeiHTML += `
                 <tr style="border-bottom: 1px solid var(--border-color);">
                     <td style="padding: 10px; font-family: monospace;">${imei}</td>
+                    <td style="padding: 10px; font-family: monospace;">${numbers || '—'}</td>
                     <td style="padding: 10px;">${data.phoneOS}</td>
                     <td style="padding: 10px; text-align: right; font-weight: 600;">${data.count}</td>
                 </tr>
@@ -5236,7 +5288,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         });
 
         imeiHTML += '</tbody></table></div>';
-        sections.push(createCollapsibleSection('📱 IMEI Device Analysis', toggleHTML + imeiHTML, false, 'call-imei'));
+        sections.push(createCollapsibleSection(
+            '📱 IMEI Device Analysis',
+            toggleHTML + imeiHTML,
+            expandedState.get('call-imei') ?? false,
+            'call-imei'
+        ));
     }
 
     // IMSI Analysis
@@ -5262,14 +5319,24 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         });
 
         imsiHTML += '</tbody></table></div>';
-        sections.push(createCollapsibleSection('📱 IMSI Subscriber Analysis', toggleHTML + imsiHTML, false, 'call-imsi'));
+        sections.push(createCollapsibleSection(
+            '📱 IMSI Subscriber Analysis',
+            toggleHTML + imsiHTML,
+            expandedState.get('call-imsi') ?? false,
+            'call-imsi'
+        ));
     }
 
     // Geographic Heat Map
     if (analysis.locations.length > 0) {
         let geoHTML = '<div id="callLocationMap" style="height: 500px; width: 100%; margin-top: 10px;"></div>';
         geoHTML += `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 0.85rem;">📍 ${analysis.locations.length} locations recorded</div>`;
-        sections.push(createCollapsibleSection('🗺️ Geographic Heat Map', toggleHTML + geoHTML, false, 'call-geo-map'));
+        sections.push(createCollapsibleSection(
+            '🗺️ Geographic Heat Map',
+            toggleHTML + geoHTML,
+            expandedState.get('call-geo-map') ?? false,
+            'call-geo-map'
+        ));
     }
 
     // Average Call Duration by Contact (Enhanced)
@@ -5302,7 +5369,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     });
 
     avgDurationHTML += '</tbody></table></div>';
-    sections.push(createCollapsibleSection('⏱️ Average Duration by Contact', toggleHTML + avgDurationHTML, false, 'call-avg-duration'));
+    sections.push(createCollapsibleSection(
+        '⏱️ Average Duration by Contact',
+        toggleHTML + avgDurationHTML,
+        expandedState.get('call-avg-duration') ?? false,
+        'call-avg-duration'
+    ));
 
     // Call Records Table
     let recordsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
@@ -5324,7 +5396,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     recordsHTML += '</tbody></table></div>';
     const recordLabel = mode === 'sms' ? 'messages' : 'calls';
     recordsHTML += `<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Showing first 100 ${recordLabel}</div>`;
-    sections.push(createCollapsibleSection('Call Records', toggleHTML + recordsHTML, false, 'call-records'));
+    sections.push(createCollapsibleSection(
+        'Call Records',
+        toggleHTML + recordsHTML,
+        expandedState.get('call-records') ?? false,
+        'call-records'
+    ));
 
     resultsDiv.innerHTML = sections.join('');
     setupCollapsibles();
@@ -5338,7 +5415,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     }
 }
 
-function initializeCallLocationMap(locations) {
+function initializeCallLocationMap(locations, attempt = 0) {
     let mapContainer = document.getElementById('callLocationMap');
     if (!mapContainer) {
         const host = document.querySelector('.collapsible-content[data-content="call-geo-map"]');
@@ -5352,6 +5429,11 @@ function initializeCallLocationMap(locations) {
         }
     }
     if (!mapContainer || !mapContainer.isConnected || locations.length === 0) return;
+    const bounds = mapContainer.getBoundingClientRect();
+    if (bounds.height === 0 || bounds.width === 0) {
+        if (attempt < 10) setTimeout(() => initializeCallLocationMap(locations, attempt + 1), 50);
+        return;
+    }
 
     const validLocations = locations.filter(loc =>
         Number.isFinite(loc.lat) && Number.isFinite(loc.lon)
@@ -5371,7 +5453,8 @@ function initializeCallLocationMap(locations) {
     const avgLon = validLocations.reduce((sum, loc) => sum + loc.lon, 0) / validLocations.length;
 
     // Create map
-    const map = L.map(mapContainer).setView([avgLat, avgLon], 10);
+    const defaultCenter = [40.7891, -73.1349]; // Long Island, NY
+    const map = L.map(mapContainer).setView(defaultCenter, 10);
     window.callLocationMap = map;
 
     // Add tile layer

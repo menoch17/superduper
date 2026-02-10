@@ -4867,8 +4867,42 @@ function parseCallDate(value) {
         );
         if (!isNaN(date.getTime())) return date;
     }
+    const timeOnly = str.match(/^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/);
+    if (timeOnly) {
+        const now = new Date();
+        const [, hh, min, ss] = timeOnly;
+        return new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            Number(hh),
+            Number(min),
+            Number(ss || 0)
+        );
+    }
     const fallback = new Date(str);
     return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function getCallTimestamp(call) {
+    const fields = [
+        'Start Date/Time',
+        'Start Time',
+        'Date/Time',
+        'Timestamp',
+        'Start Time UTC',
+        'Date/Time Received (CDC)',
+        'First Cdc Timestamp',
+        'Created Date/Time'
+    ];
+    for (const field of fields) {
+        const val = call[field];
+        if (val) {
+            const parsed = parseCallDate(val);
+            if (parsed) return parsed;
+        }
+    }
+    return null;
 }
 
 function getCallAnalysisExpandedState() {
@@ -4961,10 +4995,8 @@ function buildCallAnalysis(data) {
         }
 
         // Time analysis
-        const startTime = call['Start Date/Time'] || call['Start Time'] || call['Date/Time'] || call['Timestamp'];
-        if (startTime) {
-            const date = parseCallDate(startTime);
-            if (!date) return;
+        const date = getCallTimestamp(call);
+        if (date) {
             const hour = date.getHours();
             analysis.hourlyDistribution[hour]++;
 

@@ -30,8 +30,8 @@
             <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
             <button class="tab-btn" onclick="switchTab('towerTab')">Tower Management</button>
             <button class="tab-btn" onclick="switchTab('packetTab')">Packet Analysis</button>
+            <button class="tab-btn" onclick="switchTab('callAnalysisTab')">Call Analysis</button>
         </nav>
-
         <main class="workspace">
             <section class="panel-stack">
                 <div id="analyzerTab" class="tab-panel active">
@@ -102,6 +102,28 @@ Example message types this tool can parse:
                         <div id="packetStatus" class="status-chip">
                             No packet data loaded
                         </div>
+                    </div>
+                </div>
+
+                <div id="callAnalysisTab" class="tab-panel">
+                    <div class="input-section">
+                        <h2>Call Analysis - CSV Analytics</h2>
+                        <p class="section-note">Upload calls.csv to analyze call patterns, identify top contacts, visualize timelines, and extract insights from your call data.</p>
+
+                        <div class="button-row">
+                            <input type="file" id="callFileInput" accept=".csv" style="display: none;"
+                                onchange="handleCallCSVUpload(event)">
+                            <button class="btn-primary"
+                                onclick="document.getElementById('callFileInput').click()">Upload calls.csv</button>
+                            <button class="btn-secondary" onclick="clearCallAnalysis()">Clear Results</button>
+                        </div>
+                        <div id="callStatus" class="status-chip">
+                            No call data loaded
+                        </div>
+                    </div>
+
+                    <div id="callResults" style="display: none;">
+                        <!-- Results will be dynamically inserted here -->
                     </div>
                 </div>
             </section>

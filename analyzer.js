@@ -4671,6 +4671,286 @@ function setupTimelineEventHandlers() {
     }
 }
 
+// ============================================================================
+// CALL ANALYSIS FUNCTIONS (CSV Analytics)
+// ============================================================================
+
+let callAnalysisData = [];
+
+function handleCallCSVUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const csvText = e.target.result;
+            parseCallCSV(csvText);
+        } catch (error) {
+            document.getElementById('callStatus').innerHTML =
+                `<span style="color: var(--danger-color);">Error: ${error.message}</span>`;
+        }
+    };
+    reader.readAsText(file);
+}
+
+function parseCallCSV(csvText) {
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) {
+        throw new Error('CSV file is empty or invalid');
+    }
+
+    // Remove BOM if present and parse header
+    const headerLine = lines[0].replace(/^\uFEFF/, '');
+    const headers = parseCSVLine(headerLine);
+
+    callAnalysisData = [];
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i]);
+        if (values.length === headers.length) {
+            const row = {};
+            headers.forEach((header, idx) => {
+                row[header] = values[idx];
+            });
+            callAnalysisData.push(row);
+        }
+    }
+
+    document.getElementById('callStatus').innerHTML =
+        `<span style="color: var(--success-color);">✓ Loaded ${callAnalysisData.length} call records</span>`;
+
+    analyzeCallData();
+}
+
+function analyzeCallData() {
+    if (callAnalysisData.length === 0) return;
+
+    const analysis = {
+        totalCalls: callAnalysisData.length,
+        incoming: 0,
+        outgoing: 0,
+        totalDuration: 0,
+        contacts: new Map(),
+        carriers: new Map(),
+        hourlyDistribution: new Array(24).fill(0),
+        dailyDistribution: new Map(),
+        locations: [],
+        averageDuration: 0,
+        longestCall: null,
+        shortestCall: null,
+        callsByDay: new Map()
+    };
+
+    callAnalysisData.forEach(call => {
+        // Direction
+        const direction = (call['Direction'] || '').toLowerCase();
+        if (direction === 'incoming') analysis.incoming++;
+        if (direction === 'outgoing') analysis.outgoing++;
+
+        // Duration
+        const duration = parseDurationString(call['Duration'] || call['Duration (CCC)'] || '00:00:00');
+        analysis.totalDuration += duration;
+
+        // Track longest/shortest
+        if (!analysis.longestCall || duration > analysis.longestCall.duration) {
+            analysis.longestCall = { duration, call };
+        }
+        if (!analysis.shortestCall || (duration > 0 && duration < analysis.shortestCall.duration)) {
+            analysis.shortestCall = { duration, call };
+        }
+
+        // Contacts
+        const contact = call['Associate Number'];
+        if (contact) {
+            if (!analysis.contacts.has(contact)) {
+                analysis.contacts.set(contact, {
+                    count: 0,
+                    totalDuration: 0,
+                    name: call['Associate Subscriber Name'] || 'Unknown',
+                    carrier: call['Associate Provider'] || 'Unknown'
+                });
+            }
+            const contactData = analysis.contacts.get(contact);
+            contactData.count++;
+            contactData.totalDuration += duration;
+        }
+
+        // Carriers
+        const carrier = call['Associate Provider'];
+        if (carrier) {
+            analysis.carriers.set(carrier, (analysis.carriers.get(carrier) || 0) + 1);
+        }
+
+        // Time analysis
+        const startTime = call['Start Date/Time'] || call['Start Time'];
+        if (startTime) {
+            const date = new Date(startTime);
+            const hour = date.getHours();
+            analysis.hourlyDistribution[hour]++;
+
+            const dayKey = date.toLocaleDateString();
+            analysis.callsByDay.set(dayKey, (analysis.callsByDay.get(dayKey) || 0) + 1);
+        }
+
+        // Location data
+        if (call['First Tower Latitude'] && call['First Tower Longitude']) {
+            analysis.locations.push({
+                lat: parseFloat(call['First Tower Latitude']),
+                lon: parseFloat(call['First Tower Longitude']),
+                tower: call['First Tower']
+            });
+        }
+    });
+
+    analysis.averageDuration = analysis.totalDuration / analysis.totalCalls;
+
+    displayCallAnalysis(analysis);
+}
+
+function parseDurationString(durationStr) {
+    // Parse HH:MM:SS format
+    const parts = durationStr.split(':').map(p => parseInt(p) || 0);
+    if (parts.length === 3) {
+        return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+    return 0;
+}
+
+function formatDurationFromSeconds(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function displayCallAnalysis(analysis) {
+    const resultsDiv = document.getElementById('callResults');
+    resultsDiv.style.display = 'block';
+
+    const sections = [];
+
+    // Overview Section
+    const overviewHTML = `
+        <div class="summary-grid">
+            <div class="summary-card highlight">
+                <h3>Total Calls</h3>
+                <div class="summary-value">${analysis.totalCalls}</div>
+            </div>
+            <div class="summary-card">
+                <h3>Incoming</h3>
+                <div class="summary-value" style="color: var(--success-color);">${analysis.incoming}</div>
+                <div class="summary-label">${((analysis.incoming / analysis.totalCalls) * 100).toFixed(1)}%</div>
+            </div>
+            <div class="summary-card">
+                <h3>Outgoing</h3>
+                <div class="summary-value" style="color: var(--info-color);">${analysis.outgoing}</div>
+                <div class="summary-label">${((analysis.outgoing / analysis.totalCalls) * 100).toFixed(1)}%</div>
+            </div>
+            <div class="summary-card">
+                <h3>Total Duration</h3>
+                <div class="summary-value">${formatDurationFromSeconds(analysis.totalDuration)}</div>
+                <div class="summary-label">Average: ${formatDurationFromSeconds(Math.round(analysis.averageDuration))}</div>
+            </div>
+        </div>
+    `;
+    sections.push(createCollapsibleSection('Call Overview', overviewHTML, true, 'call-overview'));
+
+    // Top Contacts Section
+    const topContacts = Array.from(analysis.contacts.entries())
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 20);
+
+    let contactsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+    contactsHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
+    contactsHTML += '<th style="padding: 12px; text-align: left;">Contact</th>';
+    contactsHTML += '<th style="padding: 12px; text-align: left;">Name</th>';
+    contactsHTML += '<th style="padding: 12px; text-align: left;">Carrier</th>';
+    contactsHTML += '<th style="padding: 12px; text-align: right;">Calls</th>';
+    contactsHTML += '<th style="padding: 12px; text-align: right;">Total Duration</th>';
+    contactsHTML += '</tr></thead><tbody>';
+
+    topContacts.forEach(([number, data]) => {
+        contactsHTML += `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 10px; font-family: monospace;">${number}</td>
+                <td style="padding: 10px;">${data.name}</td>
+                <td style="padding: 10px;">${data.carrier}</td>
+                <td style="padding: 10px; text-align: right; font-weight: 600;">${data.count}</td>
+                <td style="padding: 10px; text-align: right;">${formatDurationFromSeconds(data.totalDuration)}</td>
+            </tr>
+        `;
+    });
+
+    contactsHTML += '</tbody></table></div>';
+    sections.push(createCollapsibleSection('Top 20 Contacts', contactsHTML, true, 'call-contacts'));
+
+    // Carrier Distribution
+    const carrierEntries = Array.from(analysis.carriers.entries()).sort((a, b) => b[1] - a[1]);
+    let carrierHTML = '<div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">';
+    carrierEntries.forEach(([carrier, count]) => {
+        const percentage = ((count / analysis.totalCalls) * 100).toFixed(1);
+        carrierHTML += `
+            <div class="summary-card">
+                <div class="summary-label">${carrier}</div>
+                <div class="summary-value">${count}</div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem;">${percentage}% of calls</div>
+            </div>
+        `;
+    });
+    carrierHTML += '</div>';
+    sections.push(createCollapsibleSection('Carrier Distribution', carrierHTML, false, 'call-carriers'));
+
+    // Hourly Distribution
+    let hourlyHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+    hourlyHTML += '<thead><tr><th>Hour</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
+    const maxHourly = Math.max(...analysis.hourlyDistribution);
+    analysis.hourlyDistribution.forEach((count, hour) => {
+        const barWidth = maxHourly > 0 ? (count / maxHourly) * 100 : 0;
+        hourlyHTML += `
+            <tr>
+                <td style="padding: 8px;">${String(hour).padStart(2, '0')}:00</td>
+                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
+                <td style="padding: 8px;">
+                    <div style="background: var(--accent-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
+                </td>
+            </tr>
+        `;
+    });
+    hourlyHTML += '</tbody></table></div>';
+    sections.push(createCollapsibleSection('Calls by Hour of Day', hourlyHTML, false, 'call-hourly'));
+
+    // Call Records Table
+    let recordsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+    recordsHTML += '<thead><tr style="background: var(--primary-color); color: white;">';
+    recordsHTML += '<th>Date/Time</th><th>Direction</th><th>Contact</th><th>Duration</th><th>Carrier</th></tr></thead><tbody>';
+    callAnalysisData.slice(0, 100).forEach(call => {
+        const direction = call['Direction'] || '';
+        const directionIcon = direction.toLowerCase() === 'incoming' ? '📞 ↓' : '📞 ↑';
+        recordsHTML += `
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 8px;">${call['Start Date/Time'] || call['Start Time']}</td>
+                <td style="padding: 8px;">${directionIcon} ${direction}</td>
+                <td style="padding: 8px; font-family: monospace;">${call['Associate Number']}</td>
+                <td style="padding: 8px;">${call['Duration']}</td>
+                <td style="padding: 8px; font-size: 0.85rem;">${call['Associate Provider'] || 'Unknown'}</td>
+            </tr>
+        `;
+    });
+    recordsHTML += '</tbody></table></div>';
+    recordsHTML += '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Showing first 100 calls</div>';
+    sections.push(createCollapsibleSection('Call Records', recordsHTML, false, 'call-records'));
+
+    resultsDiv.innerHTML = sections.join('');
+    setupCollapsibles();
+}
+
+function clearCallAnalysis() {
+    callAnalysisData = [];
+    document.getElementById('callResults').style.display = 'none';
+    document.getElementById('callStatus').innerHTML = 'No call data loaded';
+    document.getElementById('callFileInput').value = '';
+}
+
 // Explicitly expose functions to the global scope to ensure buttons work
 window.analyzeCDC = analyzeCDC;
 window.switchCall = switchCall;
@@ -4693,6 +4973,8 @@ window.filterIPAnalysis = filterIPAnalysis;
 window.sortIPAnalysis = sortIPAnalysis;
 window.changeIPPage = changeIPPage;
 window.renderIPAnalysisPage = renderIPAnalysisPage;
+window.handleCallCSVUpload = handleCallCSVUpload;
+window.clearCallAnalysis = clearCallAnalysis;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

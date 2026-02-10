@@ -655,6 +655,8 @@ let towerDatabaseShortId = new Map(); // Key: normalized short cell IDs (MCCMNC 
 let supabaseClient = null;
 let leafletMap = null;
 let sectorLayers = [];
+let callMapSectorLayers = [];
+let towerDatabaseBySiteId = null;
 
 const SECTOR_DEFAULT_BEAM_WIDTH = 65;
 const SECTOR_DEFAULT_RADIUS_METERS = 2000;
@@ -1327,6 +1329,27 @@ function createSectorLayer(tower, lat, lng) {
     }
 
     return layerGroup;
+}
+
+function buildTowerDatabaseBySiteId() {
+    if (towerDatabaseBySiteId) return towerDatabaseBySiteId;
+    towerDatabaseBySiteId = new Map();
+    towerDatabase.forEach(value => {
+        if (value.siteId) towerDatabaseBySiteId.set(String(value.siteId).trim(), value);
+        if (value.sectorName) towerDatabaseBySiteId.set(String(value.sectorName).trim(), value);
+    });
+    return towerDatabaseBySiteId;
+}
+
+function resolveTowerForCallLocation(loc) {
+    if (!loc) return null;
+    if (loc.tower && towerDatabase.has(loc.tower)) return towerDatabase.get(loc.tower);
+    if (loc.tower) {
+        const bySite = buildTowerDatabaseBySiteId();
+        const key = String(loc.tower).trim();
+        if (bySite.has(key)) return bySite.get(key);
+    }
+    return null;
 }
 
 function buildSectorPolygon(lat, lng, azimuth, beamWidth, radiusMeters) {
@@ -5110,11 +5133,13 @@ function setCallAnalysisMode(mode) {
 function renderCallAnalysisToggle(mode) {
     const isCalls = mode === 'calls';
     const isSms = mode === 'sms';
-    const baseStyle = 'padding: 4px 8px; border-radius: 6px; font-size: 0.75rem;';
+    const baseStyle = 'padding: 4px 10px; border-radius: 999px; font-size: 0.75rem; border: 1px solid var(--border-color);';
+    const activeStyle = 'background: var(--success-color); color: #fff; border-color: var(--success-color);';
+    const inactiveStyle = 'background: transparent; color: var(--text-secondary);';
     return `
         <div style="display: flex; gap: 6px; margin-bottom: 10px;">
-            <button class="btn-secondary" style="${baseStyle} ${isCalls ? 'background: var(--primary-color); color: white;' : ''}" onclick="setCallAnalysisMode('calls')">Calls</button>
-            <button class="btn-secondary" style="${baseStyle} ${isSms ? 'background: var(--primary-color); color: white;' : ''}" onclick="setCallAnalysisMode('sms')">SMS/MMS</button>
+            <button class="btn-secondary" style="${baseStyle} ${isCalls ? activeStyle : inactiveStyle}" aria-pressed="${isCalls}" onclick="setCallAnalysisMode('calls')">Calls</button>
+            <button class="btn-secondary" style="${baseStyle} ${isSms ? activeStyle : inactiveStyle}" aria-pressed="${isSms}" onclick="setCallAnalysisMode('sms')">SMS/MMS</button>
         </div>
     `;
 }
@@ -5256,22 +5281,31 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     ));
 
     // Hourly Distribution
-    let hourlyHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    hourlyHTML += '<thead><tr><th>Hour</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
     const maxHourly = Math.max(...analysis.hourlyDistribution);
-    analysis.hourlyDistribution.forEach((count, hour) => {
-        const barWidth = maxHourly > 0 ? (count / maxHourly) * 100 : 0;
-        hourlyHTML += `
-            <tr>
-                <td style="padding: 8px;">${String(hour).padStart(2, '0')}:00</td>
-                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
-                <td style="padding: 8px;">
-                    <div style="background: var(--accent-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
-                </td>
-            </tr>
-        `;
-    });
-    hourlyHTML += '</tbody></table></div>';
+    let hourlyHTML = '<div style="overflow-x: auto;">';
+    if (maxHourly === 0) {
+        hourlyHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
+    } else {
+        const chartWidth = 720;
+        const chartHeight = 180;
+        const padding = 24;
+        const barGap = 4;
+        const barCount = analysis.hourlyDistribution.length;
+        const barWidth = Math.floor((chartWidth - padding * 2 - barGap * (barCount - 1)) / barCount);
+        hourlyHTML += `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; max-width: 900px; height: auto;">`;
+        hourlyHTML += `<line x1="${padding}" y1="${chartHeight - padding}" x2="${chartWidth - padding}" y2="${chartHeight - padding}" stroke="var(--border-color)" stroke-width="1"/>`;
+        analysis.hourlyDistribution.forEach((count, hour) => {
+            const x = padding + hour * (barWidth + barGap);
+            const h = Math.max(4, Math.round((count / maxHourly) * (chartHeight - padding * 2)));
+            const y = (chartHeight - padding) - h;
+            hourlyHTML += `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="3" fill="var(--accent-color)"/>`;
+            if (hour % 2 === 0) {
+                hourlyHTML += `<text x="${x + barWidth / 2}" y="${chartHeight - 6}" text-anchor="middle" font-size="10" fill="var(--text-secondary)">${String(hour).padStart(2, '0')}</text>`;
+            }
+        });
+        hourlyHTML += '</svg>';
+    }
+    hourlyHTML += '</div>';
     sections.push(createCollapsibleSection(
         'Calls by Hour of Day',
         toggleHTML + hourlyHTML,
@@ -5281,22 +5315,29 @@ function displayCallAnalysis(analysis, mode = 'calls') {
 
     // Day of Week Distribution
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    let dayOfWeekHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    dayOfWeekHTML += '<thead><tr><th>Day</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
     const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution);
-    analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
-        const barWidth = maxDayOfWeek > 0 ? (count / maxDayOfWeek) * 100 : 0;
-        dayOfWeekHTML += `
-            <tr>
-                <td style="padding: 8px;">${daysOfWeek[dayIndex]}</td>
-                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
-                <td style="padding: 8px;">
-                    <div style="background: var(--success-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
-                </td>
-            </tr>
-        `;
-    });
-    dayOfWeekHTML += '</tbody></table></div>';
+    let dayOfWeekHTML = '<div style="overflow-x: auto;">';
+    if (maxDayOfWeek === 0) {
+        dayOfWeekHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
+    } else {
+        const chartWidth = 520;
+        const chartHeight = 180;
+        const padding = 28;
+        const barGap = 12;
+        const barCount = analysis.dayOfWeekDistribution.length;
+        const barWidth = Math.floor((chartWidth - padding * 2 - barGap * (barCount - 1)) / barCount);
+        dayOfWeekHTML += `<svg viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%; max-width: 700px; height: auto;">`;
+        dayOfWeekHTML += `<line x1="${padding}" y1="${chartHeight - padding}" x2="${chartWidth - padding}" y2="${chartHeight - padding}" stroke="var(--border-color)" stroke-width="1"/>`;
+        analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
+            const x = padding + dayIndex * (barWidth + barGap);
+            const h = Math.max(6, Math.round((count / maxDayOfWeek) * (chartHeight - padding * 2)));
+            const y = (chartHeight - padding) - h;
+            dayOfWeekHTML += `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="3" fill="var(--success-color)"/>`;
+            dayOfWeekHTML += `<text x="${x + barWidth / 2}" y="${chartHeight - 6}" text-anchor="middle" font-size="10" fill="var(--text-secondary)">${daysOfWeek[dayIndex].slice(0, 3)}</text>`;
+        });
+        dayOfWeekHTML += '</svg>';
+    }
+    dayOfWeekHTML += '</div>';
     sections.push(createCollapsibleSection(
         '📅 Calls by Day of Week',
         toggleHTML + dayOfWeekHTML,
@@ -5540,6 +5581,10 @@ function initializeCallLocationMap(locations, attempt = 0) {
         window.callLocationMap.remove();
         window.callLocationMap = null;
     }
+    if (callMapSectorLayers.length) {
+        callMapSectorLayers.forEach(layer => layer.remove?.());
+        callMapSectorLayers = [];
+    }
 
     // Clear any existing map
     mapContainer.innerHTML = '';
@@ -5578,6 +5623,22 @@ function initializeCallLocationMap(locations, attempt = 0) {
         }).addTo(map);
 
         marker.bindPopup(`<strong>${count} call${count > 1 ? 's' : ''}</strong><br>Location: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+    });
+
+    validLocations.forEach(loc => {
+        const tower = resolveTowerForCallLocation(loc);
+        if (!tower) return;
+        try {
+            const lat = Number.isFinite(tower.lat) ? tower.lat : loc.lat;
+            const lon = Number.isFinite(tower.lon) ? tower.lon : loc.lon;
+            const sectorLayer = createSectorLayer(tower, lat, lon);
+            if (sectorLayer) {
+                sectorLayer.addTo(map);
+                callMapSectorLayers.push(sectorLayer);
+            }
+        } catch (err) {
+            console.error('Call map sector render failed', err);
+        }
     });
 
     // Keep Long Island as the center; do not auto-fit bounds.

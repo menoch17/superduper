@@ -2080,7 +2080,7 @@ function parsePacketCSV(csvText) {
     // Remove BOM if present
     const headerLine = lines[0].replace(/^\uFEFF/, '');
     const delimiter = detectDelimiter(headerLine);
-    const headers = parseDelimitedLine(headerLine, delimiter);
+    const headers = parseDelimitedLine(headerLine, delimiter).map(h => h.trim());
 
     packetData = [];
     for (let i = 1; i < lines.length; i++) {
@@ -4793,7 +4793,7 @@ function parseCallCSV(csvText) {
     // Remove BOM if present and parse header
     const headerLine = rows[0].replace(/^\uFEFF/, '');
     const delimiter = detectDelimiter(headerLine);
-    const headers = parseDelimitedLine(headerLine, delimiter);
+    const headers = parseDelimitedLine(headerLine, delimiter).map(h => h.trim());
 
     callAnalysisData = [];
     for (let i = 1; i < rows.length; i++) {

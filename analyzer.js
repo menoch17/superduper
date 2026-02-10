@@ -5256,24 +5256,22 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     ));
 
     // Hourly Distribution
+    let hourlyHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+    hourlyHTML += '<thead><tr><th>Hour</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
     const maxHourly = Math.max(...analysis.hourlyDistribution);
-    let hourlyHTML = '<div style="overflow-x: auto;">';
-    if (maxHourly === 0) {
-        hourlyHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
-    } else {
-        hourlyHTML += '<div style="display: flex; align-items: flex-end; gap: 6px; height: 140px; padding: 10px 0;">';
-        analysis.hourlyDistribution.forEach((count, hour) => {
-            const height = Math.max(4, Math.round((count / maxHourly) * 120));
-            hourlyHTML += `
-                <div style="display: flex; flex-direction: column; align-items: center; width: 18px;">
-                    <div style="width: 100%; height: ${height}px; background: var(--accent-color); border-radius: 4px 4px 2px 2px;"></div>
-                    <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${String(hour).padStart(2, '0')}</div>
-                </div>
-            `;
-        });
-        hourlyHTML += '</div>';
-    }
-    hourlyHTML += '</div>';
+    analysis.hourlyDistribution.forEach((count, hour) => {
+        const barWidth = maxHourly > 0 ? (count / maxHourly) * 100 : 0;
+        hourlyHTML += `
+            <tr>
+                <td style="padding: 8px;">${String(hour).padStart(2, '0')}:00</td>
+                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
+                <td style="padding: 8px;">
+                    <div style="background: var(--accent-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
+                </td>
+            </tr>
+        `;
+    });
+    hourlyHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         'Calls by Hour of Day',
         toggleHTML + hourlyHTML,
@@ -5283,24 +5281,22 @@ function displayCallAnalysis(analysis, mode = 'calls') {
 
     // Day of Week Distribution
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    let dayOfWeekHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
+    dayOfWeekHTML += '<thead><tr><th>Day</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
     const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution);
-    let dayOfWeekHTML = '<div style="overflow-x: auto;">';
-    if (maxDayOfWeek === 0) {
-        dayOfWeekHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
-    } else {
-        dayOfWeekHTML += '<div style="display: flex; align-items: flex-end; gap: 10px; height: 140px; padding: 10px 0;">';
-        analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
-            const height = Math.max(6, Math.round((count / maxDayOfWeek) * 120));
-            dayOfWeekHTML += `
-                <div style="display: flex; flex-direction: column; align-items: center; width: 28px;">
-                    <div style="width: 100%; height: ${height}px; background: var(--success-color); border-radius: 4px 4px 2px 2px;"></div>
-                    <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${daysOfWeek[dayIndex].slice(0, 3)}</div>
-                </div>
-            `;
-        });
-        dayOfWeekHTML += '</div>';
-    }
-    dayOfWeekHTML += '</div>';
+    analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
+        const barWidth = maxDayOfWeek > 0 ? (count / maxDayOfWeek) * 100 : 0;
+        dayOfWeekHTML += `
+            <tr>
+                <td style="padding: 8px;">${daysOfWeek[dayIndex]}</td>
+                <td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td>
+                <td style="padding: 8px;">
+                    <div style="background: var(--success-color); height: 20px; width: ${barWidth}%; border-radius: 3px;"></div>
+                </td>
+            </tr>
+        `;
+    });
+    dayOfWeekHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         '📅 Calls by Day of Week',
         toggleHTML + dayOfWeekHTML,

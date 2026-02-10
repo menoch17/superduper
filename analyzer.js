@@ -5663,7 +5663,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     durationTrendsHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         '📈 Call Duration Trends',
-        toggleHTML + timeFilterHTML + durationTrendsHTML,
+        timeFilterHTML + durationTrendsHTML,
         expandedState.get('call-duration-trends') ?? false,
         'call-duration-trends'
     ));
@@ -5753,7 +5753,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     avgDurationHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
         '⏱️ Average Duration by Contact',
-        toggleHTML + avgDurationHTML,
+        avgDurationHTML,
         expandedState.get('call-avg-duration') ?? false,
         'call-avg-duration'
     ));

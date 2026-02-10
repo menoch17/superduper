@@ -5278,7 +5278,18 @@ function displayCallAnalysis(analysis) {
 }
 
 function initializeCallLocationMap(locations) {
-    const mapContainer = document.getElementById('callLocationMap');
+    let mapContainer = document.getElementById('callLocationMap');
+    if (!mapContainer) {
+        const host = document.querySelector('.collapsible-content[data-content="call-geo-map"]');
+        if (host) {
+            mapContainer = document.createElement('div');
+            mapContainer.id = 'callLocationMap';
+            mapContainer.style.height = '500px';
+            mapContainer.style.width = '100%';
+            mapContainer.style.marginTop = '10px';
+            host.prepend(mapContainer);
+        }
+    }
     if (!mapContainer || !mapContainer.isConnected || locations.length === 0) return;
 
     const validLocations = locations.filter(loc =>

@@ -4695,22 +4695,56 @@ function handleCallCSVUpload(event) {
 }
 
 function parseCallCSV(csvText) {
-    const lines = csvText.trim().split('\n');
-    if (lines.length < 2) {
+    // Parse CSV properly handling multi-line quoted fields
+    const rows = [];
+    let currentRow = '';
+    let inQuotes = false;
+
+    // Process character by character to handle quoted newlines
+    for (let i = 0; i < csvText.length; i++) {
+        const char = csvText[i];
+        const nextChar = csvText[i + 1];
+
+        if (char === '"') {
+            // Handle escaped quotes ("")
+            if (nextChar === '"') {
+                currentRow += char;
+                i++; // Skip next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+            currentRow += char;
+        } else if (char === '\n' && !inQuotes) {
+            // End of row
+            if (currentRow.trim()) {
+                rows.push(currentRow);
+            }
+            currentRow = '';
+        } else {
+            currentRow += char;
+        }
+    }
+
+    // Add last row if exists
+    if (currentRow.trim()) {
+        rows.push(currentRow);
+    }
+
+    if (rows.length < 2) {
         throw new Error('CSV file is empty or invalid');
     }
 
     // Remove BOM if present and parse header
-    const headerLine = lines[0].replace(/^\uFEFF/, '');
+    const headerLine = rows[0].replace(/^\uFEFF/, '');
     const headers = parseCSVLine(headerLine);
 
     callAnalysisData = [];
-    for (let i = 1; i < lines.length; i++) {
-        const values = parseCSVLine(lines[i]);
-        if (values.length === headers.length) {
+    for (let i = 1; i < rows.length; i++) {
+        const values = parseCSVLine(rows[i]);
+        if (values.length >= headers.length - 5) { // Allow some tolerance for malformed rows
             const row = {};
             headers.forEach((header, idx) => {
-                row[header] = values[idx];
+                row[header] = values[idx] || '';
             });
             callAnalysisData.push(row);
         }
@@ -4826,6 +4860,7 @@ function formatDurationFromSeconds(seconds) {
 function displayCallAnalysis(analysis) {
     const resultsDiv = document.getElementById('callResults');
     resultsDiv.style.display = 'block';
+    resultsDiv.className = 'results-container active';
 
     const sections = [];
 
@@ -4946,7 +4981,10 @@ function displayCallAnalysis(analysis) {
 
 function clearCallAnalysis() {
     callAnalysisData = [];
-    document.getElementById('callResults').style.display = 'none';
+    const resultsDiv = document.getElementById('callResults');
+    resultsDiv.style.display = 'none';
+    resultsDiv.className = '';
+    resultsDiv.innerHTML = '';
     document.getElementById('callStatus').innerHTML = 'No call data loaded';
     document.getElementById('callFileInput').value = '';
 }

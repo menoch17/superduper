@@ -1069,7 +1069,9 @@ function setupCollapsibles() {
                         mapEl.style.marginTop = '10px';
                         content.prepend(mapEl);
                     }
-                    setTimeout(() => initializeCallLocationMap(window.lastCallLocations), 50);
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => initializeCallLocationMap(window.lastCallLocations));
+                    });
                 }
             }
         });
@@ -4938,7 +4940,7 @@ function buildCallAnalysis(data) {
         }
 
         // Time analysis
-        const startTime = call['Start Date/Time'] || call['Start Time'];
+        const startTime = call['Start Date/Time'] || call['Start Time'] || call['Date/Time'] || call['Timestamp'];
         if (startTime) {
             const date = new Date(startTime);
             const hour = date.getHours();
@@ -5003,12 +5005,14 @@ function buildCallAnalysis(data) {
 
 function isCallRecord(row) {
     const type = String(row['Content Type'] || '').toLowerCase();
-    return type === 'call' || type === 'voice';
+    if (!type) return false;
+    if (type.includes('sms') || type.includes('mms')) return false;
+    return type.includes('call') || type.includes('voice');
 }
 
 function isSmsRecord(row) {
     const type = String(row['Content Type'] || '').toLowerCase();
-    return type === 'sms' || type === 'mms' || type === 'sms/mms';
+    return type.includes('sms') || type.includes('mms');
 }
 
 function setCallAnalysisMode(mode) {
@@ -5166,19 +5170,24 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     ));
 
     // Hourly Distribution
-    const maxHourly = Math.max(...analysis.hourlyDistribution, 1);
+    const maxHourly = Math.max(...analysis.hourlyDistribution);
     let hourlyHTML = '<div style="overflow-x: auto;">';
-    hourlyHTML += '<div style="display: flex; align-items: flex-end; gap: 6px; height: 140px; padding: 10px 0;">';
-    analysis.hourlyDistribution.forEach((count, hour) => {
-        const height = Math.max(4, Math.round((count / maxHourly) * 120));
-        hourlyHTML += `
-            <div style="display: flex; flex-direction: column; align-items: center; width: 18px;">
-                <div style="width: 100%; height: ${height}px; background: var(--accent-color); border-radius: 4px 4px 2px 2px;"></div>
-                <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${String(hour).padStart(2, '0')}</div>
-            </div>
-        `;
-    });
-    hourlyHTML += '</div></div>';
+    if (maxHourly === 0) {
+        hourlyHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
+    } else {
+        hourlyHTML += '<div style="display: flex; align-items: flex-end; gap: 6px; height: 140px; padding: 10px 0;">';
+        analysis.hourlyDistribution.forEach((count, hour) => {
+            const height = Math.max(4, Math.round((count / maxHourly) * 120));
+            hourlyHTML += `
+                <div style="display: flex; flex-direction: column; align-items: center; width: 18px;">
+                    <div style="width: 100%; height: ${height}px; background: var(--accent-color); border-radius: 4px 4px 2px 2px;"></div>
+                    <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${String(hour).padStart(2, '0')}</div>
+                </div>
+            `;
+        });
+        hourlyHTML += '</div>';
+    }
+    hourlyHTML += '</div>';
     sections.push(createCollapsibleSection(
         'Calls by Hour of Day',
         toggleHTML + hourlyHTML,
@@ -5188,19 +5197,24 @@ function displayCallAnalysis(analysis, mode = 'calls') {
 
     // Day of Week Distribution
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution, 1);
+    const maxDayOfWeek = Math.max(...analysis.dayOfWeekDistribution);
     let dayOfWeekHTML = '<div style="overflow-x: auto;">';
-    dayOfWeekHTML += '<div style="display: flex; align-items: flex-end; gap: 10px; height: 140px; padding: 10px 0;">';
-    analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
-        const height = Math.max(6, Math.round((count / maxDayOfWeek) * 120));
-        dayOfWeekHTML += `
-            <div style="display: flex; flex-direction: column; align-items: center; width: 28px;">
-                <div style="width: 100%; height: ${height}px; background: var(--success-color); border-radius: 4px 4px 2px 2px;"></div>
-                <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${daysOfWeek[dayIndex].slice(0, 3)}</div>
-            </div>
-        `;
-    });
-    dayOfWeekHTML += '</div></div>';
+    if (maxDayOfWeek === 0) {
+        dayOfWeekHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
+    } else {
+        dayOfWeekHTML += '<div style="display: flex; align-items: flex-end; gap: 10px; height: 140px; padding: 10px 0;">';
+        analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
+            const height = Math.max(6, Math.round((count / maxDayOfWeek) * 120));
+            dayOfWeekHTML += `
+                <div style="display: flex; flex-direction: column; align-items: center; width: 28px;">
+                    <div style="width: 100%; height: ${height}px; background: var(--success-color); border-radius: 4px 4px 2px 2px;"></div>
+                    <div style="font-size: 0.65rem; color: var(--text-secondary); margin-top: 6px;">${daysOfWeek[dayIndex].slice(0, 3)}</div>
+                </div>
+            `;
+        });
+        dayOfWeekHTML += '</div>';
+    }
+    dayOfWeekHTML += '</div>';
     sections.push(createCollapsibleSection(
         '📅 Calls by Day of Week',
         toggleHTML + dayOfWeekHTML,
@@ -5454,7 +5468,7 @@ function initializeCallLocationMap(locations, attempt = 0) {
 
     // Create map
     const defaultCenter = [40.7891, -73.1349]; // Long Island, NY
-    const map = L.map(mapContainer).setView(defaultCenter, 10);
+    const map = L.map(mapContainer, { preferCanvas: true }).setView(defaultCenter, 10);
     window.callLocationMap = map;
 
     // Add tile layer
@@ -5483,6 +5497,11 @@ function initializeCallLocationMap(locations, attempt = 0) {
 
         marker.bindPopup(`<strong>${count} call${count > 1 ? 's' : ''}</strong><br>Location: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
     });
+
+    if (validLocations.length > 0) {
+        const bounds = L.latLngBounds(validLocations.map(loc => [loc.lat, loc.lon]));
+        if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+    }
 }
 
 function searchCallContacts(searchTerm) {

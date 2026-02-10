@@ -1038,6 +1038,14 @@ function setupCollapsibles() {
     document.querySelectorAll('.collapse-toggle').forEach(btn => {
         if (btn.dataset.listenerAttached) return;
         btn.dataset.listenerAttached = 'true';
+        const header = btn.closest('.collapsible-header');
+        if (header && !header.dataset.listenerAttached) {
+            header.dataset.listenerAttached = 'true';
+            header.addEventListener('click', (e) => {
+                if (e.target === btn) return;
+                btn.click();
+            });
+        }
         btn.addEventListener('click', () => {
             const target = btn.dataset.target;
             const content = document.querySelector(`.collapsible-content[data-content="${target}"]`);
@@ -1053,6 +1061,14 @@ function setupCollapsibles() {
             }
             if (!isOpen && target === 'call-geo-map') {
                 if (window.lastCallLocations?.length) {
+                    if (!document.getElementById('callLocationMap')) {
+                        const mapEl = document.createElement('div');
+                        mapEl.id = 'callLocationMap';
+                        mapEl.style.height = '500px';
+                        mapEl.style.width = '100%';
+                        mapEl.style.marginTop = '10px';
+                        content.prepend(mapEl);
+                    }
                     setTimeout(() => initializeCallLocationMap(window.lastCallLocations), 50);
                 }
             }

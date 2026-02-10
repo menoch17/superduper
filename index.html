@@ -124,6 +124,10 @@ Example message types this tool can parse:
                                     <option value="all">All Targets</option>
                                 </select>
                             </label>
+                            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);" id="callContactSearchContainer" style="display: none;">
+                                <span>🔍 Search Contact:</span>
+                                <input type="text" id="callContactSearch" class="btn-secondary" style="padding: 6px 10px; min-width: 200px;" placeholder="Enter phone number or name..." oninput="searchCallContacts(this.value)">
+                            </label>
                         </div>
                         <div id="callStatus" class="status-chip">
                             No call data loaded

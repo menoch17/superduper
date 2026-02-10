@@ -2381,17 +2381,28 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     }
     sections.push(createCollapsibleSection('Detected Applications & Services', appHTML, true, 'packet-apps'));
 
-    // Unified IP Analysis Section with Filtering
+    // Unified IP Analysis Section with Filtering and Pagination
+    // Store all IPs globally for pagination
+    window.allIPAnalysisData = Object.values(ipAnalysis).sort((a, b) => b.bytes - a.bytes);
+    window.ipAnalysisCurrentPage = 0;
+    const pageSize = 50;
+    const totalIPs = window.allIPAnalysisData.length;
+    const startIndex = 0;
+    const endIndex = Math.min(pageSize, totalIPs);
+
     let ipAnalysisHTML = `
         <div style="margin-bottom: 15px;">
             <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
                 <span id="whoisProgress" style="padding: 10px; color: var(--text-secondary);"></span>
             </div>
-            <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; align-items: center;">
                 <button class="filter-chip active" data-ip-filter="all" onclick="filterIPAnalysis('all')">All IPs</button>
                 <button class="filter-chip" data-ip-filter="source" onclick="filterIPAnalysis('source')">↑ Source IPs</button>
                 <button class="filter-chip" data-ip-filter="destination" onclick="filterIPAnalysis('destination')">↓ Destination IPs</button>
-                <div style="margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap;">
+                <div style="margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <span id="ipPaginationInfo" style="color: var(--text-secondary); font-size: 0.9rem;">Showing ${startIndex + 1}-${endIndex} of ${totalIPs}</span>
+                    <button id="ipPrevPage" class="btn-secondary" onclick="changeIPPage(-1)" ${startIndex === 0 ? 'disabled' : ''}>← Previous</button>
+                    <button id="ipNextPage" class="btn-secondary" onclick="changeIPPage(1)" ${endIndex >= totalIPs ? 'disabled' : ''}>Next →</button>
                     <select id="ipSortSelect" onchange="sortIPAnalysis(this.value)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary);">
                         <option value="bytes">Sort by Bytes</option>
                         <option value="packets">Sort by Packets</option>
@@ -2415,12 +2426,10 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
                 <tbody id="ipAnalysisTableBody">
     `;
 
-    // Build table rows with all data
-    const sortedIPs = Object.values(ipAnalysis)
-        .sort((a, b) => b.bytes - a.bytes)
-        .slice(0, 100); // Top 100 IPs
+    // Build table rows for current page only
+    const currentPageIPs = window.allIPAnalysisData.slice(startIndex, endIndex);
 
-    sortedIPs.forEach((data) => {
+    currentPageIPs.forEach((data) => {
         const ip = data.ip;
         const ports = Array.from(data.ports).slice(0, 5).join(', ');
         const protocols = Array.from(data.protocols).join(', ');
@@ -2626,32 +2635,118 @@ function filterIPAnalysis(filterType) {
     });
 }
 
-// Sort IP Analysis table
-function sortIPAnalysis(sortBy) {
+// Change IP Analysis page
+function changeIPPage(direction) {
+    if (!window.allIPAnalysisData) return;
+
+    const pageSize = 50;
+    window.ipAnalysisCurrentPage = (window.ipAnalysisCurrentPage || 0) + direction;
+
+    // Clamp to valid range
+    const maxPage = Math.ceil(window.allIPAnalysisData.length / pageSize) - 1;
+    window.ipAnalysisCurrentPage = Math.max(0, Math.min(window.ipAnalysisCurrentPage, maxPage));
+
+    renderIPAnalysisPage();
+}
+
+// Render current page of IP analysis
+function renderIPAnalysisPage() {
+    if (!window.allIPAnalysisData) return;
+
+    const pageSize = 50;
+    const currentPage = window.ipAnalysisCurrentPage || 0;
+    const totalIPs = window.allIPAnalysisData.length;
+    const startIndex = currentPage * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalIPs);
+    const currentPageIPs = window.allIPAnalysisData.slice(startIndex, endIndex);
+
+    // Update table body
     const tbody = document.getElementById('ipAnalysisTableBody');
     if (!tbody) return;
 
-    const rows = Array.from(tbody.querySelectorAll('.ip-row'));
+    let html = '';
+    currentPageIPs.forEach((data) => {
+        const ip = data.ip;
+        const ports = Array.from(data.ports).slice(0, 5).join(', ');
+        const protocols = Array.from(data.protocols).join(', ');
+        const ipKey = ip.replace(/:/g, '-');
+        const displayMeta = getIpDisplayMeta(ip);
 
-    rows.sort((a, b) => {
+        let direction = '';
+        let directionClass = '';
+        if (data.isSource && data.isDestination) {
+            direction = '↕️';
+            directionClass = 'both';
+        } else if (data.isSource) {
+            direction = '↑';
+            directionClass = 'source';
+        } else if (data.isDestination) {
+            direction = '↓';
+            directionClass = 'destination';
+        }
+
+        html += `
+            <tr class="ip-row ip-${directionClass}" data-direction="${directionClass}" style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 10px;">
+                    <div id="whois-name-${ipKey}" data-whois-name="${ip}" style="font-weight: 600;">${displayMeta.name}</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">${ip} · ${displayMeta.source}</div>
+                    <span id="whois-${ipKey}" style="display: none;"></span>
+                </td>
+                <td style="padding: 10px; text-align: center; font-size: 1.2rem;" title="${directionClass}">${direction}</td>
+                <td style="padding: 10px;"><span style="background: var(--info-color); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem;">${data.service}</span></td>
+                <td style="padding: 10px; text-align: right;" data-packets="${data.packets}">${data.packets}</td>
+                <td style="padding: 10px; text-align: right;" data-bytes="${data.bytes}">${formatBytes(data.bytes)}</td>
+                <td style="padding: 10px; text-align: right;" data-connections="${data.connections}">${data.connections}</td>
+                <td style="padding: 10px; font-size: 0.85rem;">${ports}</td>
+                <td style="padding: 10px; font-size: 0.85rem;">${protocols}</td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+
+    // Update pagination info and buttons
+    const paginationInfo = document.getElementById('ipPaginationInfo');
+    if (paginationInfo) {
+        paginationInfo.textContent = `Showing ${startIndex + 1}-${endIndex} of ${totalIPs}`;
+    }
+
+    const prevBtn = document.getElementById('ipPrevPage');
+    const nextBtn = document.getElementById('ipNextPage');
+    if (prevBtn) prevBtn.disabled = (startIndex === 0);
+    if (nextBtn) nextBtn.disabled = (endIndex >= totalIPs);
+
+    // Run WHOIS lookup for visible IPs only
+    setTimeout(() => {
+        performBulkWhois();
+    }, 100);
+}
+
+// Sort IP Analysis table
+function sortIPAnalysis(sortBy) {
+    if (!window.allIPAnalysisData) return;
+
+    // Sort the global data array
+    window.allIPAnalysisData.sort((a, b) => {
         let aVal, bVal;
 
         if (sortBy === 'bytes') {
-            aVal = parseInt(a.querySelector('[data-bytes]').getAttribute('data-bytes')) || 0;
-            bVal = parseInt(b.querySelector('[data-bytes]').getAttribute('data-bytes')) || 0;
+            aVal = a.bytes || 0;
+            bVal = b.bytes || 0;
         } else if (sortBy === 'packets') {
-            aVal = parseInt(a.querySelector('[data-packets]').getAttribute('data-packets')) || 0;
-            bVal = parseInt(b.querySelector('[data-packets]').getAttribute('data-packets')) || 0;
+            aVal = a.packets || 0;
+            bVal = b.packets || 0;
         } else if (sortBy === 'connections') {
-            aVal = parseInt(a.querySelector('[data-connections]').getAttribute('data-connections')) || 0;
-            bVal = parseInt(b.querySelector('[data-connections]').getAttribute('data-connections')) || 0;
+            aVal = a.connections || 0;
+            bVal = b.connections || 0;
         }
 
         return bVal - aVal; // Descending order
     });
 
-    // Re-append rows in sorted order
-    rows.forEach(row => tbody.appendChild(row));
+    // Reset to first page and re-render
+    window.ipAnalysisCurrentPage = 0;
+    renderIPAnalysisPage();
 }
 
 async function viewWhoisCache() {
@@ -4596,6 +4691,8 @@ window.closeWhoisCache = closeWhoisCache;
 window.resolveReverseDNS = resolveReverseDNS;
 window.filterIPAnalysis = filterIPAnalysis;
 window.sortIPAnalysis = sortIPAnalysis;
+window.changeIPPage = changeIPPage;
+window.renderIPAnalysisPage = renderIPAnalysisPage;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

@@ -4897,6 +4897,7 @@ function analyzeCallData() {
     const smsOnly = callAnalysisData.filter(row => isSmsRecord(row));
 
     window.callAnalysisAll = buildCallAnalysis(callAnalysisData);
+    window.callAnalysisCallsSummary = buildCallAnalysis(callsOnly);
     window.callAnalysisBaseRecords = { calls: callsOnly, sms: smsOnly };
 
     const mode = window.callAnalysisMode || 'calls';
@@ -5445,6 +5446,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     ));
 
     // Overview Section
+    const callSummary = window.callAnalysisCallsSummary || analysis;
     const overviewHTML = `
         <div class="summary-grid">
             <div class="summary-card highlight">
@@ -5463,8 +5465,8 @@ function displayCallAnalysis(analysis, mode = 'calls') {
             </div>
             <div class="summary-card">
                 <h3>Total Duration</h3>
-                <div class="summary-value">${mode === 'calls' ? formatDurationFromSeconds(analysis.totalDuration) : '—'}</div>
-                <div class="summary-label">Average: ${mode === 'calls' ? formatDurationFromSeconds(Math.round(analysis.averageDuration)) : '—'}</div>
+                <div class="summary-value">${formatDurationFromSeconds(callSummary.totalDuration)}</div>
+                <div class="summary-label">Average: ${formatDurationFromSeconds(Math.round(callSummary.averageDuration))}</div>
             </div>
         </div>
     `;

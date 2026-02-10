@@ -2079,11 +2079,12 @@ function parsePacketCSV(csvText) {
 
     // Remove BOM if present
     const headerLine = lines[0].replace(/^\uFEFF/, '');
-    const headers = parseCSVLine(headerLine);
+    const delimiter = detectDelimiter(headerLine);
+    const headers = parseDelimitedLine(headerLine, delimiter);
 
     packetData = [];
     for (let i = 1; i < lines.length; i++) {
-        const values = parseCSVLine(lines[i]);
+        const values = parseDelimitedLine(lines[i], delimiter);
         if (values.length === headers.length) {
             const row = {};
             headers.forEach((header, idx) => {
@@ -2099,16 +2100,29 @@ function parsePacketCSV(csvText) {
     analyzePacketData();
 }
 
-function parseCSVLine(line) {
+function detectDelimiter(line) {
+    const commaCount = (line.match(/,/g) || []).length;
+    const tabCount = (line.match(/\t/g) || []).length;
+    return tabCount > commaCount ? '\t' : ',';
+}
+
+function parseDelimitedLine(line, delimiter = ',') {
     const result = [];
     let current = '';
     let inQuotes = false;
 
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
+        const nextChar = line[i + 1];
+
         if (char === '"') {
-            inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
+            if (nextChar === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === delimiter && !inQuotes) {
             result.push(current);
             current = '';
         } else {
@@ -2117,6 +2131,10 @@ function parseCSVLine(line) {
     }
     result.push(current);
     return result;
+}
+
+function parseCSVLine(line) {
+    return parseDelimitedLine(line, ',');
 }
 
 function analyzePacketData() {
@@ -4774,11 +4792,12 @@ function parseCallCSV(csvText) {
 
     // Remove BOM if present and parse header
     const headerLine = rows[0].replace(/^\uFEFF/, '');
-    const headers = parseCSVLine(headerLine);
+    const delimiter = detectDelimiter(headerLine);
+    const headers = parseDelimitedLine(headerLine, delimiter);
 
     callAnalysisData = [];
     for (let i = 1; i < rows.length; i++) {
-        const values = parseCSVLine(rows[i]);
+        const values = parseDelimitedLine(rows[i], delimiter);
         if (values.length >= headers.length - 5) { // Allow some tolerance for malformed rows
             const row = {};
             headers.forEach((header, idx) => {

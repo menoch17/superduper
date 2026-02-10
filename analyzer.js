@@ -1826,6 +1826,7 @@ function switchTab(tabId) {
     const callSelectorSelect = document.getElementById('callSelector');
     const callDetails = document.getElementById('callDetails');
     const packetResults = document.getElementById('packetResults');
+    const callResults = document.getElementById('callResults');
 
     // Special handling for map resize when switching to analyzer
     if (tabId === 'analyzerTab') {
@@ -1841,6 +1842,7 @@ function switchTab(tabId) {
         if (packetResults) {
             packetResults.style.display = packetData.length ? 'block' : 'none';
         }
+        if (callResults) callResults.style.display = 'none';
     } else if (tabId === 'analyzerTab') {
         if (results) results.style.display = '';
         if (callDetails) callDetails.style.display = '';
@@ -1849,9 +1851,19 @@ function switchTab(tabId) {
             callSelector.style.display = hasOptions ? 'flex' : 'none';
         }
         if (packetResults) packetResults.style.display = 'none';
+        if (callResults) callResults.style.display = 'none';
+    } else if (tabId === 'callAnalysisTab') {
+        if (results) results.style.display = '';
+        if (callSelector) callSelector.style.display = 'none';
+        if (callDetails) callDetails.style.display = 'none';
+        if (packetResults) packetResults.style.display = 'none';
+        if (callResults) {
+            callResults.style.display = callAnalysisData.length ? 'block' : 'none';
+        }
     } else {
         if (results) results.style.display = 'none';
         if (packetResults) packetResults.style.display = 'none';
+        if (callResults) callResults.style.display = 'none';
     }
 
     // Check database connection when switching to packet tab

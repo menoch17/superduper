@@ -2355,16 +2355,6 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
 
     const sections = [];
 
-    // Database Stats Section
-    const dbStatsHTML = `
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div><strong>IP WHOIS Database:</strong> <span id="dbCacheCount">Checking...</span></div>
-            </div>
-        </div>
-    `;
-    sections.push(createCollapsibleSection('Database Statistics', dbStatsHTML, true, 'packet-db-stats'));
-
     // App Detection Section
     let appHTML = '';
     if (Object.keys(appDetection).length > 0) {
@@ -2472,26 +2462,7 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     ipAnalysisHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection('IP Address Analysis', ipAnalysisHTML, true, 'packet-ip-analysis'));
 
-    // Protocol Sessions Section
-    let protocolHTML = '<p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 0.9rem;">Counts reflect sessions grouped by protocol (Session Protocol or Transport Protocol).</p>';
-    const protocolSessions = Object.entries(serviceStats)
-        .sort((a, b) => b[1] - a[1]);
-    if (protocolSessions.length) {
-        protocolHTML += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
-        protocolHTML += '<thead><tr><th>Protocol</th><th style="text-align: right;">Sessions</th></tr></thead><tbody>';
-        protocolSessions.forEach(([protocol, count]) => {
-            protocolHTML += `<tr>
-                <td style="padding: 10px;">${protocol.toUpperCase()}</td>
-                <td style="padding: 10px; text-align: right;">${count}</td>
-            </tr>`;
-        });
-        protocolHTML += '</tbody></table></div>';
-    } else {
-        protocolHTML += '<p style="color: var(--text-secondary);">No protocol session data available.</p>';
-    }
-    sections.push(createCollapsibleSection('Protocol Sessions', protocolHTML, false, 'packet-protocols'));
-
-    // Port Usage Statistics Section
+    // Port Usage Statistics Section (moved before Protocol Sessions)
     let portHTML = '';
     const sortedPorts = Object.entries(portStats || {})
         .sort((a, b) => b[1] - a[1])
@@ -2522,6 +2493,27 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     }
     sections.push(createCollapsibleSection('Port Usage Statistics', portHTML, false, 'packet-ports'));
 
+    // Protocol Sessions Section (with descriptions)
+    let protocolHTML = '<p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 0.9rem;">Counts reflect sessions grouped by protocol (Session Protocol or Transport Protocol).</p>';
+    const protocolSessions = Object.entries(serviceStats)
+        .sort((a, b) => b[1] - a[1]);
+    if (protocolSessions.length) {
+        protocolHTML += '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%; border-collapse: collapse;">';
+        protocolHTML += '<thead><tr><th>Protocol</th><th>Description</th><th style="text-align: right;">Sessions</th></tr></thead><tbody>';
+        protocolSessions.forEach(([protocol, count]) => {
+            const description = getProtocolDescription(protocol);
+            protocolHTML += `<tr>
+                <td style="padding: 10px; font-weight: 600;">${protocol.toUpperCase()}</td>
+                <td style="padding: 10px; color: var(--text-secondary); font-size: 0.9rem;">${description}</td>
+                <td style="padding: 10px; text-align: right;">${count}</td>
+            </tr>`;
+        });
+        protocolHTML += '</tbody></table></div>';
+    } else {
+        protocolHTML += '<p style="color: var(--text-secondary);">No protocol session data available.</p>';
+    }
+    sections.push(createCollapsibleSection('Protocol Sessions', protocolHTML, false, 'packet-protocols'));
+
     // Usage Timeline Section
     if (timelineStats && Object.keys(timelineStats).length) {
         const timelineRows = Object.entries(timelineStats)
@@ -2550,22 +2542,44 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
         setTimeout(() => resolveReverseDNS(), 0);
     }
 
-    // Update cache stats
-    getWhoisCacheStats().then(count => {
-        const el = document.getElementById('dbCacheCount');
-        if (el) {
-            if (supabaseClient) {
-                el.innerHTML = `<strong>${count}</strong> IPs cached (saves API calls)`;
-            } else {
-                el.innerHTML = '<span style="color: #ffd700;">⚠ Database not connected - WHOIS results won\'t be cached</span>';
-            }
-        }
-    });
-
     // Auto-run WHOIS lookup for top IPs
     setTimeout(() => {
         performBulkWhois();
     }, 0);
+}
+
+// Get protocol description
+function getProtocolDescription(protocol) {
+    const descriptions = {
+        'tcp': 'Transmission Control Protocol - Reliable, connection-oriented communication',
+        'udp': 'User Datagram Protocol - Fast, connectionless communication',
+        'icmp': 'Internet Control Message Protocol - Network diagnostics (ping, traceroute)',
+        'http': 'Hypertext Transfer Protocol - Web traffic (unencrypted)',
+        'https': 'HTTP Secure - Encrypted web traffic via TLS/SSL',
+        'dns': 'Domain Name System - Resolves domain names to IP addresses',
+        'tls': 'Transport Layer Security - Encrypted communication layer',
+        'ssl': 'Secure Sockets Layer - Predecessor to TLS (deprecated)',
+        'ftp': 'File Transfer Protocol - File transfers (unencrypted)',
+        'ssh': 'Secure Shell - Encrypted remote access and file transfers',
+        'smtp': 'Simple Mail Transfer Protocol - Email sending',
+        'pop3': 'Post Office Protocol - Email retrieval',
+        'imap': 'Internet Message Access Protocol - Email access and sync',
+        'quic': 'Quick UDP Internet Connections - Modern encrypted transport (HTTP/3)',
+        'rdp': 'Remote Desktop Protocol - Windows remote desktop access',
+        'sip': 'Session Initiation Protocol - VoIP call setup',
+        'rtp': 'Real-time Transport Protocol - Audio/video streaming',
+        'ntp': 'Network Time Protocol - Clock synchronization',
+        'dhcp': 'Dynamic Host Configuration Protocol - IP address assignment',
+        'snmp': 'Simple Network Management Protocol - Network device monitoring',
+        'telnet': 'Telnet - Unencrypted remote terminal access (insecure)',
+        'ldap': 'Lightweight Directory Access Protocol - Directory services',
+        'smb': 'Server Message Block - Windows file/printer sharing',
+        'ipsec': 'Internet Protocol Security - VPN and encrypted IP communications',
+        'gre': 'Generic Routing Encapsulation - VPN tunneling protocol'
+    };
+
+    const protoLower = protocol.toLowerCase();
+    return descriptions[protoLower] || 'Network protocol';
 }
 
 // Filter IP Analysis table by direction

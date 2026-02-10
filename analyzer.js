@@ -4688,6 +4688,8 @@ function setupTimelineEventHandlers() {
 // ============================================================================
 
 let callAnalysisData = [];
+let allCallData = []; // Store unfiltered data
+let selectedTarget = 'all';
 
 function handleCallCSVUpload(event) {
     const file = event.target.files[0];
@@ -4762,8 +4764,50 @@ function parseCallCSV(csvText) {
         }
     }
 
+    // Store original data
+    allCallData = [...callAnalysisData];
+
+    // Populate target dropdown
+    const targets = new Set();
+    callAnalysisData.forEach(call => {
+        const target = call['Target'];
+        if (target) targets.add(target);
+    });
+
+    const targetSelect = document.getElementById('callTargetSelect');
+    if (targetSelect) {
+        targetSelect.innerHTML = '<option value="all">All Targets</option>';
+        Array.from(targets).sort().forEach(target => {
+            const option = document.createElement('option');
+            option.value = target;
+            option.textContent = target;
+            targetSelect.appendChild(option);
+        });
+    }
+
+    // Show target filter
+    const targetContainer = document.getElementById('callTargetFilterContainer');
+    if (targetContainer) {
+        targetContainer.style.display = targets.size > 1 ? 'flex' : 'none';
+    }
+
     document.getElementById('callStatus').innerHTML =
-        `<span style="color: var(--success-color);">✓ Loaded ${callAnalysisData.length} call records</span>`;
+        `<span style="color: var(--success-color);">✓ Loaded ${callAnalysisData.length} call records from ${targets.size} target(s)</span>`;
+
+    analyzeCallData();
+}
+
+function filterCallAnalysisByTarget(target) {
+    selectedTarget = target;
+
+    if (target === 'all') {
+        callAnalysisData = [...allCallData];
+    } else {
+        callAnalysisData = allCallData.filter(call => call['Target'] === target);
+    }
+
+    document.getElementById('callStatus').innerHTML =
+        `<span style="color: var(--success-color);">✓ Showing ${callAnalysisData.length} records for ${target === 'all' ? 'all targets' : target}</span>`;
 
     analyzeCallData();
 }
@@ -4771,8 +4815,23 @@ function parseCallCSV(csvText) {
 function analyzeCallData() {
     if (callAnalysisData.length === 0) return;
 
+    // Group by content type first
+    const byContentType = new Map();
+    const contentTypes = new Set();
+
+    callAnalysisData.forEach(call => {
+        const contentType = call['Content Type'] || 'Unknown';
+        contentTypes.add(contentType);
+        if (!byContentType.has(contentType)) {
+            byContentType.set(contentType, []);
+        }
+        byContentType.get(contentType).push(call);
+    });
+
     const analysis = {
-        totalCalls: callAnalysisData.length,
+        totalRecords: callAnalysisData.length,
+        contentTypes: contentTypes,
+        byContentType: byContentType,
         incoming: 0,
         outgoing: 0,
         totalDuration: 0,
@@ -4876,22 +4935,39 @@ function displayCallAnalysis(analysis) {
 
     const sections = [];
 
+    // Content Type Breakdown Section
+    let contentTypeHTML = '<div class="summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">';
+    Array.from(analysis.contentTypes).sort().forEach(contentType => {
+        const count = analysis.byContentType.get(contentType).length;
+        const percentage = ((count / analysis.totalRecords) * 100).toFixed(1);
+        const icon = contentType === 'Call' ? '📞' : contentType === 'SMS' ? '💬' : contentType === 'MMS' ? '📎' : '📋';
+        contentTypeHTML += `
+            <div class="summary-card">
+                <div class="summary-label">${icon} ${contentType}</div>
+                <div class="summary-value">${count}</div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem;">${percentage}% of records</div>
+            </div>
+        `;
+    });
+    contentTypeHTML += '</div>';
+    sections.push(createCollapsibleSection('Content Type Breakdown', contentTypeHTML, true, 'call-content-types'));
+
     // Overview Section
     const overviewHTML = `
         <div class="summary-grid">
             <div class="summary-card highlight">
-                <h3>Total Calls</h3>
-                <div class="summary-value">${analysis.totalCalls}</div>
+                <h3>Total Records</h3>
+                <div class="summary-value">${analysis.totalRecords}</div>
             </div>
             <div class="summary-card">
                 <h3>Incoming</h3>
                 <div class="summary-value" style="color: var(--success-color);">${analysis.incoming}</div>
-                <div class="summary-label">${((analysis.incoming / analysis.totalCalls) * 100).toFixed(1)}%</div>
+                <div class="summary-label">${analysis.totalRecords > 0 ? ((analysis.incoming / analysis.totalRecords) * 100).toFixed(1) : 0}%</div>
             </div>
             <div class="summary-card">
                 <h3>Outgoing</h3>
                 <div class="summary-value" style="color: var(--info-color);">${analysis.outgoing}</div>
-                <div class="summary-label">${((analysis.outgoing / analysis.totalCalls) * 100).toFixed(1)}%</div>
+                <div class="summary-label">${analysis.totalRecords > 0 ? ((analysis.outgoing / analysis.totalRecords) * 100).toFixed(1) : 0}%</div>
             </div>
             <div class="summary-card">
                 <h3>Total Duration</h3>
@@ -5025,6 +5101,7 @@ window.changeIPPage = changeIPPage;
 window.renderIPAnalysisPage = renderIPAnalysisPage;
 window.handleCallCSVUpload = handleCallCSVUpload;
 window.clearCallAnalysis = clearCallAnalysis;
+window.filterCallAnalysisByTarget = filterCallAnalysisByTarget;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

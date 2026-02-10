@@ -5249,7 +5249,7 @@ function renderContactCards(analysis) {
             <div class="summary-card">
                 <div style="font-family: monospace; font-weight: 600; margin-bottom: 6px;">${number}</div>
                 <div style="color: var(--text-secondary); font-size: 0.85rem;">${data.name || 'Unknown'}</div>
-                <div style="margin-top: 8px; font-size: 0.85rem;">Calls: <strong>${data.count}</strong></div>
+                <div style="margin-top: 8px; font-size: 0.85rem;">Events: <strong>${data.count}</strong></div>
                 <div style="font-size: 0.85rem;">Total Duration: <strong>${formatDurationFromSeconds(data.totalDuration)}</strong></div>
                 <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px;">First: ${formatCallDate(data.firstSeen)}</div>
                 <div style="font-size: 0.8rem; color: var(--text-secondary);">Last: ${formatCallDate(data.lastSeen)}</div>
@@ -5487,7 +5487,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     contactsHTML += '<th style="padding: 12px; text-align: left;">Contact</th>';
     contactsHTML += '<th style="padding: 12px; text-align: left;">Name</th>';
     contactsHTML += '<th style="padding: 12px; text-align: left;">Carrier</th>';
-    contactsHTML += '<th style="padding: 12px; text-align: right;">Calls</th>';
+    contactsHTML += '<th style="padding: 12px; text-align: right;">Events</th>';
     contactsHTML += '<th style="padding: 12px; text-align: right;">Total Duration</th>';
     contactsHTML += '</tr></thead><tbody>';
 
@@ -5575,7 +5575,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     }
     hourlyHTML += '</div>';
     sections.push(createCollapsibleSection(
-        'Calls by Hour of Day',
+        'Events by Hour of Day',
         toggleHTML + timeFilterHTML + hourlyHTML,
         expandedState.get('call-hourly') ?? false,
         'call-hourly'
@@ -5605,7 +5605,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     }
     dayOfWeekHTML += '</div>';
     sections.push(createCollapsibleSection(
-        '📅 Calls by Day of Week',
+        '📅 Events by Day of Week',
         toggleHTML + timeFilterHTML + dayOfWeekHTML,
         expandedState.get('call-day-of-week') ?? false,
         'call-day-of-week'
@@ -5616,7 +5616,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         .sort((a, b) => new Date(a[0]) - new Date(b[0]));
 
     let dailyTrendsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    dailyTrendsHTML += '<thead><tr><th>Date</th><th>Calls</th><th>Visual</th></tr></thead><tbody>';
+    dailyTrendsHTML += '<thead><tr><th>Date</th><th>Events</th><th>Visual</th></tr></thead><tbody>';
     const maxDailyCallsValue = Math.max(...Array.from(analysis.callsByDay.values()));
 
     dailyTrends.forEach(([date, count]) => {
@@ -5633,7 +5633,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     });
     dailyTrendsHTML += '</tbody></table></div>';
     sections.push(createCollapsibleSection(
-        '📊 Daily Call Trends',
+        '📊 Daily Event Trends',
         toggleHTML + timeFilterHTML + dailyTrendsHTML,
         expandedState.get('call-daily-trends') ?? false,
         'call-daily-trends'
@@ -5645,7 +5645,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
             .sort((a, b) => new Date(a[0]) - new Date(b[0]));
 
         let durationTrendsHTML = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-        durationTrendsHTML += '<thead><tr><th>Date</th><th>Calls</th><th>Avg Duration</th><th>Total Duration</th></tr></thead><tbody>';
+    durationTrendsHTML += '<thead><tr><th>Date</th><th>Calls</th><th>Avg Duration</th><th>Total Duration</th></tr></thead><tbody>';
 
         durationTrends.forEach(([date, data]) => {
             const avgDuration = data.count > 0 ? Math.round(data.totalDuration / data.count) : 0;
@@ -5776,10 +5776,9 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         `;
     });
     recordsHTML += '</tbody></table></div>';
-    const recordLabel = mode === 'sms' ? 'messages' : 'calls';
-    recordsHTML += `<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Showing first 100 ${recordLabel}</div>`;
+    recordsHTML += `<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.85rem;">Showing first 100 events</div>`;
     sections.push(createCollapsibleSection(
-        'Call Records',
+        'Event Records',
         toggleHTML + recordsHTML,
         expandedState.get('call-records') ?? false,
         'call-records'

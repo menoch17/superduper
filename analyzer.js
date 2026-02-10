@@ -1069,9 +1069,10 @@ function setupCollapsibles() {
                         mapEl.style.marginTop = '10px';
                         content.prepend(mapEl);
                     }
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => initializeCallLocationMap(window.lastCallLocations));
-                    });
+                    // Ensure layout has settled before init
+                    content.offsetHeight;
+                    setTimeout(() => initializeCallLocationMap(window.lastCallLocations), 0);
+                    setTimeout(() => initializeCallLocationMap(window.lastCallLocations), 120);
                 }
             }
         });
@@ -4850,6 +4851,26 @@ function analyzeCallData() {
     displayCallAnalysis(window.callAnalysisViews[mode], mode);
 }
 
+function parseCallDate(value) {
+    if (!value) return null;
+    const str = String(value).trim();
+    const match = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+        const [, mm, dd, yyyy, hh, min, ss] = match;
+        const date = new Date(
+            Number(yyyy),
+            Number(mm) - 1,
+            Number(dd),
+            Number(hh),
+            Number(min),
+            Number(ss || 0)
+        );
+        if (!isNaN(date.getTime())) return date;
+    }
+    const fallback = new Date(str);
+    return isNaN(fallback.getTime()) ? null : fallback;
+}
+
 function getCallAnalysisExpandedState() {
     const state = new Map();
     document.querySelectorAll('.collapsible-section').forEach(section => {
@@ -4942,7 +4963,8 @@ function buildCallAnalysis(data) {
         // Time analysis
         const startTime = call['Start Date/Time'] || call['Start Time'] || call['Date/Time'] || call['Timestamp'];
         if (startTime) {
-            const date = new Date(startTime);
+            const date = parseCallDate(startTime);
+            if (!date) return;
             const hour = date.getHours();
             analysis.hourlyDistribution[hour]++;
 
@@ -5498,10 +5520,7 @@ function initializeCallLocationMap(locations, attempt = 0) {
         marker.bindPopup(`<strong>${count} call${count > 1 ? 's' : ''}</strong><br>Location: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
     });
 
-    if (validLocations.length > 0) {
-        const bounds = L.latLngBounds(validLocations.map(loc => [loc.lat, loc.lon]));
-        if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
-    }
+    // Keep Long Island as the center; do not auto-fit bounds.
 }
 
 function searchCallContacts(searchTerm) {

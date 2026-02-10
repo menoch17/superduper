@@ -658,6 +658,7 @@ let sectorLayers = [];
 let callMapSectorLayers = [];
 let towerDatabaseBySiteId = null;
 let callAnalysisTimeFilter = null;
+let callAnalysisSequence = 0;
 
 const SECTOR_DEFAULT_BEAM_WIDTH = 65;
 const SECTOR_DEFAULT_RADIUS_METERS = 2000;
@@ -4867,6 +4868,7 @@ function parseCallCSV(csvText) {
     document.getElementById('callStatus').innerHTML =
         `<span style="color: var(--success-color);">✓ Loaded ${callAnalysisData.length} call records from ${targets.size} target(s)</span>`;
 
+    callAnalysisTimeFilter = null;
     analyzeCallData();
 }
 
@@ -4882,6 +4884,7 @@ function filterCallAnalysisByTarget(target) {
     document.getElementById('callStatus').innerHTML =
         `<span style="color: var(--success-color);">✓ Showing ${callAnalysisData.length} records for ${target === 'all' ? 'all targets' : target}</span>`;
 
+    callAnalysisTimeFilter = null;
     analyzeCallData();
 }
 
@@ -5020,6 +5023,7 @@ function buildCallAnalysis(data) {
     };
 
     data.forEach(call => {
+        callAnalysisSequence += 1;
         // Direction
         const direction = (call['Direction'] || '').toLowerCase();
         if (direction === 'incoming') analysis.incoming++;
@@ -5061,15 +5065,16 @@ function buildCallAnalysis(data) {
             if (ts) {
                 if (!contactData.firstSeen || ts < contactData.firstSeen) contactData.firstSeen = ts;
                 if (!contactData.lastSeen || ts > contactData.lastSeen) contactData.lastSeen = ts;
-                if (!analysis.contactEvents.has(contact)) analysis.contactEvents.set(contact, []);
-                analysis.contactEvents.get(contact).push({
-                    timestamp: ts,
-                    direction,
-                    contentType: call['Content Type'] || '',
-                    duration,
-                    record: call
-                });
             }
+            if (!analysis.contactEvents.has(contact)) analysis.contactEvents.set(contact, []);
+            analysis.contactEvents.get(contact).push({
+                timestamp: ts,
+                sequence: callAnalysisSequence,
+                direction,
+                contentType: call['Content Type'] || '',
+                duration,
+                record: call
+            });
         }
 
         // Carriers
@@ -5161,7 +5166,8 @@ function buildCallAnalysis(data) {
             thread.messages.push({
                 timestamp: msgTime,
                 direction: direction || call['Direction'] || '',
-                text
+                text,
+                sequence: callAnalysisSequence
             });
         }
     });
@@ -5212,6 +5218,7 @@ function clearCallAnalysisTimeFilter() {
 
 function setCallAnalysisMode(mode) {
     window.callAnalysisMode = mode;
+    callAnalysisTimeFilter = null;
     const analysis = window.callAnalysisViews?.[mode];
     if (analysis) displayCallAnalysis(analysis, mode);
 }
@@ -5297,7 +5304,14 @@ function setupContactTimelineHandlers(analysis) {
     if (!select || !list) return;
     const render = (contact) => {
         const events = analysis.contactEvents.get(contact) || [];
-        const sorted = events.slice().sort((a, b) => a.timestamp - b.timestamp);
+        const sorted = events.slice().sort((a, b) => {
+            const at = a.timestamp ? a.timestamp.getTime() : null;
+            const bt = b.timestamp ? b.timestamp.getTime() : null;
+            if (at !== null && bt !== null) return at - bt;
+            if (at !== null) return -1;
+            if (bt !== null) return 1;
+            return (a.sequence || 0) - (b.sequence || 0);
+        });
         if (!sorted.length) {
             list.innerHTML = '<div>No events for this contact.</div>';
             return;
@@ -5328,7 +5342,14 @@ function renderSmsThreads(analysis) {
     return threads.map(([contact, thread]) => {
         const last = thread.last ? formatCallDate(thread.last) : '—';
         const messages = thread.messages
-            .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+            .sort((a, b) => {
+                const at = a.timestamp ? a.timestamp.getTime() : null;
+                const bt = b.timestamp ? b.timestamp.getTime() : null;
+                if (at !== null && bt !== null) return at - bt;
+                if (at !== null) return -1;
+                if (bt !== null) return 1;
+                return (a.sequence || 0) - (b.sequence || 0);
+            })
             .map(msg => `
                 <div class="timeline-event">
                     <div class="timeline-time">${formatCallDate(msg.timestamp)}</div>
@@ -5579,8 +5600,9 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         hourlyHTML += '<div style="display: grid; grid-template-columns: repeat(24, minmax(16px, 1fr)); gap: 6px; align-items: end; height: 160px;">';
         analysis.hourlyDistribution.forEach((count, hour) => {
             const height = Math.max(6, Math.round((count / maxHourly) * 140));
+            const active = callAnalysisTimeFilter?.type === 'hour' && callAnalysisTimeFilter.value === hour;
             hourlyHTML += `
-                <div class="call-hour-bar" data-hour="${hour}" title="${String(hour).padStart(2, '0')}:00 • ${count}" style="height: ${height}px; background: var(--accent-color); border-radius: 4px; cursor: pointer;"></div>
+                <div class="call-hour-bar" data-hour="${hour}" title="${String(hour).padStart(2, '0')}:00 • ${count}" style="height: ${height}px; background: ${active ? 'var(--success-color)' : 'var(--accent-color)'}; border-radius: 4px; cursor: pointer;"></div>
             `;
         });
         hourlyHTML += '</div>';
@@ -5608,8 +5630,9 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         dayOfWeekHTML += '<div style="display: grid; grid-template-columns: repeat(7, minmax(40px, 1fr)); gap: 10px; align-items: end; height: 160px;">';
         analysis.dayOfWeekDistribution.forEach((count, dayIndex) => {
             const height = Math.max(8, Math.round((count / maxDayOfWeek) * 140));
+            const active = callAnalysisTimeFilter?.type === 'day' && callAnalysisTimeFilter.value === dayIndex;
             dayOfWeekHTML += `
-                <div class="call-day-bar" data-day="${dayIndex}" title="${daysOfWeek[dayIndex]} • ${count}" style="height: ${height}px; background: var(--success-color); border-radius: 4px; cursor: pointer;"></div>
+                <div class="call-day-bar" data-day="${dayIndex}" title="${daysOfWeek[dayIndex]} • ${count}" style="height: ${height}px; background: ${active ? 'var(--accent-color)' : 'var(--success-color)'}; border-radius: 4px; cursor: pointer;"></div>
             `;
         });
         dayOfWeekHTML += '</div>';
@@ -5751,6 +5774,12 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         let geoHTML = '<div id="callLocationMap" style="height: 500px; width: 100%; margin-top: 10px;"></div>';
         geoHTML += `<div style="margin-top: 10px; color: var(--text-secondary); font-size: 0.85rem;">📍 ${analysis.locations.length} locations recorded</div>`;
         geoHTML += '<div id="callLocationDetails" style="margin-top: 12px; font-size: 0.9rem; color: var(--text-secondary);">Click a map marker to see records.</div>';
+        if (callAnalysisTimeFilter) {
+            const filterLabel = callAnalysisTimeFilter.type === 'hour'
+                ? `Hour: ${String(callAnalysisTimeFilter.value).padStart(2, '0')}:00`
+                : `Day: ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][callAnalysisTimeFilter.value] || callAnalysisTimeFilter.value}`;
+            geoHTML += `<div style="margin-top: 8px; font-size: 0.85rem; color: var(--warning-color, #b45309);">Filtered by ${filterLabel}</div>`;
+        }
         sections.push(createCollapsibleSection(
             '🗺️ Geographic Heat Map',
             toggleHTML + timeFilterHTML + geoHTML,
@@ -5932,6 +5961,7 @@ function searchCallContacts(searchTerm) {
     if (!searchTerm || searchTerm.trim() === '') {
         // Reset to show all data
         callAnalysisData = selectedTarget === 'all' ? [...allCallData] : allCallData.filter(call => call['Target'] === selectedTarget);
+        callAnalysisTimeFilter = null;
         analyzeCallData();
         return;
     }
@@ -5958,6 +5988,7 @@ function searchCallContacts(searchTerm) {
         statusDiv.innerHTML = `<span style="color: var(--danger-color);">No records found matching "${searchTerm}"</span>`;
     }
 
+    callAnalysisTimeFilter = null;
     analyzeCallData();
 }
 

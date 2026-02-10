@@ -1051,8 +1051,12 @@ function setupCollapsibles() {
                 section.classList.toggle('expanded', !isOpen);
                 section.classList.toggle('collapsed', isOpen);
             }
-            if (!isOpen && target === 'call-geo-map' && window.callLocationMap) {
-                setTimeout(() => window.callLocationMap.invalidateSize(), 50);
+            if (!isOpen && target === 'call-geo-map') {
+                if (!window.callLocationMap && window.lastCallLocations?.length) {
+                    setTimeout(() => initializeCallLocationMap(window.lastCallLocations), 50);
+                } else if (window.callLocationMap) {
+                    setTimeout(() => window.callLocationMap.invalidateSize(), 50);
+                }
             }
         });
     });
@@ -4975,6 +4979,7 @@ function displayCallAnalysis(analysis) {
     const resultsDiv = document.getElementById('callResults');
     resultsDiv.style.display = 'block';
     resultsDiv.className = 'results-container active';
+    window.lastCallLocations = analysis.locations;
 
     const sections = [];
 

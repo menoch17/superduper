@@ -2630,8 +2630,10 @@ function displayPacketAnalysis(ipAnalysis, serviceStats, portStats, appDetection
     // Render all sections
     resultsDiv.innerHTML = sections.join('');
     setupCollapsibles();
-    setupContactTimelineHandlers(analysis);
     setupCallAnalysisChartHandlers();
+
+    const select = document.getElementById('callContactTimelineSelect');
+    if (select) renderContactTimelineList(select.value);
     if (!reverseDnsStats.attempted) {
         setTimeout(() => resolveReverseDNS(), 0);
     }
@@ -5005,8 +5007,6 @@ function buildCallAnalysis(data) {
         totalDuration: 0,
         contacts: new Map(),
         contactEvents: new Map(),
-        smsThreads: new Map(),
-        locationPairs: new Map(),
         locationIndex: new Map(),
         carriers: new Map(),
         hourlyDistribution: new Array(24).fill(0),
@@ -5058,24 +5058,24 @@ function buildCallAnalysis(data) {
                 });
             }
             const contactData = analysis.contacts.get(contact);
-            contactData.count++;
-            contactData.totalDuration += duration;
-            if (contactData.carrier) contactData.carriers.add(contactData.carrier);
-            const ts = getCallTimestamp(call);
-            if (ts) {
-                if (!contactData.firstSeen || ts < contactData.firstSeen) contactData.firstSeen = ts;
-                if (!contactData.lastSeen || ts > contactData.lastSeen) contactData.lastSeen = ts;
-            }
-            if (!analysis.contactEvents.has(contact)) analysis.contactEvents.set(contact, []);
-            analysis.contactEvents.get(contact).push({
-                timestamp: ts,
-                sequence: callAnalysisSequence,
-                direction,
-                contentType: call['Content Type'] || '',
-                duration,
-                record: call
-            });
+        contactData.count++;
+        contactData.totalDuration += duration;
+        if (contactData.carrier) contactData.carriers.add(contactData.carrier);
+        const ts = getCallTimestamp(call);
+        if (ts) {
+            if (!contactData.firstSeen || ts < contactData.firstSeen) contactData.firstSeen = ts;
+            if (!contactData.lastSeen || ts > contactData.lastSeen) contactData.lastSeen = ts;
         }
+        if (!analysis.contactEvents.has(contact)) analysis.contactEvents.set(contact, []);
+        analysis.contactEvents.get(contact).push({
+            timestamp: ts,
+            sequence: callAnalysisSequence,
+            direction,
+            contentType: call['Content Type'] || '',
+            duration,
+            record: call
+        });
+    }
 
         // Carriers
         const carrier = call['Associate Provider'];
@@ -5146,30 +5146,9 @@ function buildCallAnalysis(data) {
             if (analysis.contacts.has(contact)) analysis.contacts.get(contact).imsis.add(imsi);
         }
 
-        const firstTower = call['First Tower'];
-        const lastTower = call['Last Tower'];
-        if (firstTower && lastTower) {
-            const pairKey = `${firstTower} → ${lastTower}`;
-            analysis.locationPairs.set(pairKey, (analysis.locationPairs.get(pairKey) || 0) + 1);
-        }
+        // Location pairs removed per user request
 
-        if (isSmsRecord(call)) {
-            const threadKey = contact;
-            if (!analysis.smsThreads.has(threadKey)) {
-                analysis.smsThreads.set(threadKey, { count: 0, last: null, messages: [] });
-            }
-            const thread = analysis.smsThreads.get(threadKey);
-            thread.count++;
-            const msgTime = getCallTimestamp(call);
-            if (msgTime && (!thread.last || msgTime > thread.last)) thread.last = msgTime;
-            const text = call['Text Message'] || call['Transcript'] || call['Comments'] || call['Data'] || '';
-            thread.messages.push({
-                timestamp: msgTime,
-                direction: direction || call['Direction'] || '',
-                text,
-                sequence: callAnalysisSequence
-            });
-        }
+        // SMS threads removed per user request
     });
 
     const totalCalls = analysis.incoming + analysis.outgoing;
@@ -5292,95 +5271,45 @@ function renderContactTimeline(analysis) {
     return `
         <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
             <span style="color: var(--text-secondary);">Contact:</span>
-            <select id="callContactTimelineSelect" class="btn-secondary" style="padding: 6px 10px;">${options}</select>
+            <select id="callContactTimelineSelect" class="btn-secondary" style="padding: 6px 10px;" onchange="renderContactTimelineList(this.value)">${options}</select>
         </div>
         <div id="callContactTimelineList"></div>
     `;
 }
 
-function setupContactTimelineHandlers(analysis) {
-    const select = document.getElementById('callContactTimelineSelect');
+function renderContactTimelineList(contact) {
+    const analysis = window.currentCallAnalysis;
     const list = document.getElementById('callContactTimelineList');
-    if (!select || !list) return;
-
-    const render = (contact) => {
-        const events = analysis.contactEvents.get(contact) || [];
-        const sorted = events.slice().sort((a, b) => {
-            const at = a.timestamp ? a.timestamp.getTime() : null;
-            const bt = b.timestamp ? b.timestamp.getTime() : null;
-            if (at !== null && bt !== null) return at - bt;
-            if (at !== null) return -1;
-            if (bt !== null) return 1;
-            return (a.sequence || 0) - (b.sequence || 0);
-        });
-        if (!sorted.length) {
-            list.innerHTML = '<div>No events for this contact.</div>';
-            return;
-        }
-        list.innerHTML = sorted.map(ev => {
-            const time = formatCallDate(ev.timestamp);
-            const dir = ev.direction || '';
-            const type = ev.contentType || '';
-            const dur = ev.duration ? formatDurationFromSeconds(ev.duration) : '';
-            return `
-                <div class="timeline-event">
-                    <div class="timeline-time">${time}</div>
-                    <div class="timeline-title">${type || 'Record'} ${dir ? `(${dir})` : ''}</div>
-                    <div class="timeline-details" style="font-size: 0.9rem;">${dur ? `Duration: ${dur}` : ''}</div>
-                </div>
-            `;
-        }).join('');
-    };
-
-    render(select.value);
-    select.addEventListener('change', () => render(select.value));
-}
-
-function renderSmsThreads(analysis) {
-    const threads = Array.from(analysis.smsThreads.entries())
-        .sort((a, b) => (b[1].count - a[1].count))
-        .slice(0, 20);
-    if (!threads.length) return '<div>No SMS/MMS threads available.</div>';
-    return threads.map(([contact, thread]) => {
-        const last = thread.last ? formatCallDate(thread.last) : '—';
-        const messages = thread.messages
-            .sort((a, b) => {
-                const at = a.timestamp ? a.timestamp.getTime() : null;
-                const bt = b.timestamp ? b.timestamp.getTime() : null;
-                if (at !== null && bt !== null) return at - bt;
-                if (at !== null) return -1;
-                if (bt !== null) return 1;
-                return (a.sequence || 0) - (b.sequence || 0);
-            })
-            .map(msg => `
-                <div class="timeline-event">
-                    <div class="timeline-time">${formatCallDate(msg.timestamp)}</div>
-                    <div class="timeline-title">${msg.direction || 'Message'}</div>
-                    <div class="timeline-details" style="font-size: 0.9rem;">${msg.text || ''}</div>
-                </div>
-            `).join('');
+    if (!analysis || !list) return;
+    const events = analysis.contactEvents.get(contact) || [];
+    const sorted = events.slice().sort((a, b) => {
+        const at = a.timestamp ? a.timestamp.getTime() : null;
+        const bt = b.timestamp ? b.timestamp.getTime() : null;
+        if (at !== null && bt !== null) return at - bt;
+        if (at !== null) return -1;
+        if (bt !== null) return 1;
+        return (a.sequence || 0) - (b.sequence || 0);
+    });
+    if (!sorted.length) {
+        list.innerHTML = '<div>No events for this contact.</div>';
+        return;
+    }
+    list.innerHTML = sorted.map(ev => {
+        const time = formatCallDate(ev.timestamp);
+        const dir = ev.direction || '';
+        const type = ev.contentType || '';
+        const dur = ev.duration ? formatDurationFromSeconds(ev.duration) : '';
         return `
-            <details style="margin-bottom: 10px;">
-                <summary style="cursor: pointer; font-weight: 600;">${contact} • ${thread.count} msgs • Last: ${last}</summary>
-                <div style="margin-top: 8px;">${messages || '<div>No message text.</div>'}</div>
-            </details>
+            <div class="timeline-event">
+                <div class="timeline-time">${time}</div>
+                <div class="timeline-title">${type || 'Record'} ${dir ? `(${dir})` : ''}</div>
+                <div class="timeline-details" style="font-size: 0.9rem;">${dur ? `Duration: ${dur}` : ''}</div>
+            </div>
         `;
     }).join('');
 }
 
-function renderLocationPairs(analysis) {
-    const pairs = Array.from(analysis.locationPairs.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
-    if (!pairs.length) return '<div>No location pairs available.</div>';
-    let html = '<div style="overflow-x: auto;"><table class="data-table" style="width: 100%;">';
-    html += '<thead><tr><th>First Tower → Last Tower</th><th style="text-align: right;">Count</th></tr></thead><tbody>';
-    pairs.forEach(([pair, count]) => {
-        html += `<tr><td style="padding: 8px;">${pair}</td><td style="padding: 8px; text-align: right; font-weight: 600;">${count}</td></tr>`;
-    });
-    html += '</tbody></table></div>';
-    return html;
-}
+ 
 
 function setupCallAnalysisChartHandlers() {
     const container = document.getElementById('callResults');
@@ -5595,14 +5524,6 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         'call-contact-timeline'
     ));
 
-    const smsThreadsHTML = renderSmsThreads(analysis);
-    sections.push(createCollapsibleSection(
-        'SMS Threads',
-        toggleHTML + timeFilterHTML + smsThreadsHTML,
-        expandedState.get('call-sms-threads') ?? false,
-        'call-sms-threads'
-    ));
-
     // Carrier Distribution
     const carrierEntries = Array.from(analysis.carriers.entries()).sort((a, b) => b[1] - a[1]);
     const totalCallsWithCarrier = Array.from(analysis.carriers.values()).reduce((sum, val) => sum + val, 0);
@@ -5625,13 +5546,6 @@ function displayCallAnalysis(analysis, mode = 'calls') {
         'call-carriers'
     ));
 
-    const locationPairsHTML = renderLocationPairs(analysis);
-    sections.push(createCollapsibleSection(
-        'Frequent Location Pairs',
-        toggleHTML + timeFilterHTML + locationPairsHTML,
-        expandedState.get('call-location-pairs') ?? false,
-        'call-location-pairs'
-    ));
 
     // Hourly Distribution (interactive)
     const maxHourly = Math.max(...analysis.hourlyDistribution);
@@ -6085,6 +5999,7 @@ window.filterCallAnalysisByTarget = filterCallAnalysisByTarget;
 window.searchCallContacts = searchCallContacts;
 window.setCallAnalysisMode = setCallAnalysisMode;
 window.clearCallAnalysisTimeFilter = clearCallAnalysisTimeFilter;
+window.renderContactTimelineList = renderContactTimelineList;
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {

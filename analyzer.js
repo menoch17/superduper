@@ -5302,6 +5302,7 @@ function setupContactTimelineHandlers(analysis) {
     const select = document.getElementById('callContactTimelineSelect');
     const list = document.getElementById('callContactTimelineList');
     if (!select || !list) return;
+
     const render = (contact) => {
         const events = analysis.contactEvents.get(contact) || [];
         const sorted = events.slice().sort((a, b) => {
@@ -5330,6 +5331,7 @@ function setupContactTimelineHandlers(analysis) {
             `;
         }).join('');
     };
+
     render(select.value);
     select.addEventListener('change', () => render(select.value));
 }
@@ -5382,21 +5384,60 @@ function renderLocationPairs(analysis) {
 
 function setupCallAnalysisChartHandlers() {
     const container = document.getElementById('callResults');
-    if (!container || container.dataset.callChartHandler) return;
-    container.dataset.callChartHandler = 'true';
-    container.addEventListener('click', (e) => {
-        const hourBar = e.target.closest('.call-hour-bar');
-        if (hourBar) {
-            const hour = Number(hourBar.dataset.hour);
-            if (Number.isFinite(hour)) setCallAnalysisTimeFilter('hour', hour);
-            return;
-        }
-        const dayBar = e.target.closest('.call-day-bar');
-        if (dayBar) {
-            const day = Number(dayBar.dataset.day);
-            if (Number.isFinite(day)) setCallAnalysisTimeFilter('day', day);
-        }
-    });
+    if (!container) return;
+    if (!container.dataset.callChartHandler) {
+        container.dataset.callChartHandler = 'true';
+        container.addEventListener('click', (e) => {
+            const hourBar = e.target.closest('.call-hour-bar');
+            if (hourBar) {
+                const hour = Number(hourBar.dataset.hour);
+                if (Number.isFinite(hour)) setCallAnalysisTimeFilter('hour', hour);
+                return;
+            }
+            const dayBar = e.target.closest('.call-day-bar');
+            if (dayBar) {
+                const day = Number(dayBar.dataset.day);
+                if (Number.isFinite(day)) setCallAnalysisTimeFilter('day', day);
+            }
+        });
+    }
+
+    const select = document.getElementById('callContactTimelineSelect');
+    const list = document.getElementById('callContactTimelineList');
+    if (select && list && !select.dataset.listenerAttached) {
+        select.dataset.listenerAttached = 'true';
+        select.addEventListener('change', () => {
+            const analysis = window.currentCallAnalysis;
+            if (!analysis) return;
+            const contact = select.value;
+            const events = analysis.contactEvents.get(contact) || [];
+            const sorted = events.slice().sort((a, b) => {
+                const at = a.timestamp ? a.timestamp.getTime() : null;
+                const bt = b.timestamp ? b.timestamp.getTime() : null;
+                if (at !== null && bt !== null) return at - bt;
+                if (at !== null) return -1;
+                if (bt !== null) return 1;
+                return (a.sequence || 0) - (b.sequence || 0);
+            });
+            if (!sorted.length) {
+                list.innerHTML = '<div>No events for this contact.</div>';
+                return;
+            }
+            list.innerHTML = sorted.map(ev => {
+                const time = formatCallDate(ev.timestamp);
+                const dir = ev.direction || '';
+                const type = ev.contentType || '';
+                const dur = ev.duration ? formatDurationFromSeconds(ev.duration) : '';
+                return `
+                    <div class="timeline-event">
+                        <div class="timeline-time">${time}</div>
+                        <div class="timeline-title">${type || 'Record'} ${dir ? `(${dir})` : ''}</div>
+                        <div class="timeline-details" style="font-size: 0.9rem;">${dur ? `Duration: ${dur}` : ''}</div>
+                    </div>
+                `;
+            }).join('');
+        });
+    }
 }
 
 function renderCallLocationDetails(key) {
@@ -5444,6 +5485,7 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     resultsDiv.className = 'results-container active';
     window.lastCallLocations = analysis.locations;
     window.callAnalysisLocationIndex = analysis.locationIndex;
+    window.currentCallAnalysis = analysis;
     window.callAnalysisMode = mode;
     const toggleHTML = renderCallAnalysisToggle(mode);
     const timeFilterHTML = renderTimeFilterChip();
@@ -5597,6 +5639,8 @@ function displayCallAnalysis(analysis, mode = 'calls') {
     if (maxHourly === 0) {
         hourlyHTML += '<div style="color: var(--text-secondary); font-size: 0.9rem;">No timestamp data available.</div>';
     } else {
+        const totalHourly = analysis.hourlyDistribution.reduce((sum, v) => sum + v, 0);
+        hourlyHTML += `<div style="margin-bottom: 6px; color: var(--text-secondary); font-size: 0.8rem;">Total with timestamps: ${totalHourly}</div>`;
         hourlyHTML += '<div style="display: grid; grid-template-columns: repeat(24, minmax(16px, 1fr)); gap: 6px; align-items: end; height: 160px;">';
         analysis.hourlyDistribution.forEach((count, hour) => {
             const height = Math.max(6, Math.round((count / maxHourly) * 140));

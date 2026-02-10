@@ -4914,11 +4914,20 @@ function getCallTimestamp(call) {
         'First Cdc Timestamp',
         'Created Date/Time'
     ];
+    if (!window.__debugCallTimestamps) {
+        window.__debugCallTimestamps = { total: 0, parsed: 0, byField: {} };
+    }
+    window.__debugCallTimestamps.total++;
     for (const field of fields) {
         const val = call[field];
         if (val) {
             const parsed = parseCallDate(val);
-            if (parsed) return parsed;
+            if (parsed) {
+                window.__debugCallTimestamps.parsed++;
+                window.__debugCallTimestamps.byField[field] =
+                    (window.__debugCallTimestamps.byField[field] || 0) + 1;
+                return parsed;
+            }
         }
     }
     return null;
@@ -5072,6 +5081,10 @@ function buildCallAnalysis(data) {
 
     const totalCalls = analysis.incoming + analysis.outgoing;
     analysis.averageDuration = totalCalls > 0 ? analysis.totalDuration / totalCalls : 0;
+
+    if (window.__debugCallTimestamps) {
+        analysis._timestampStats = window.__debugCallTimestamps;
+    }
 
     return analysis;
 }

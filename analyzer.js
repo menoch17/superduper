@@ -2587,7 +2587,10 @@ function getProtocolDescription(protocol) {
         'seclayer-tcp': 'Security Layer TCP - Secure communications protocol',
         'vulture': 'Vulture - Security and load balancing protocol',
         'insitu-conf': 'InSitu Conference - Audio/video conferencing protocol',
-        'google': 'Google Services - Proprietary Google communication protocol'
+        'google': 'Google Services - Proprietary Google communication protocol',
+        'hopopt': 'IPv6 Hop-by-Hop Options - IPv6 extension header for per-hop options',
+        'qtms-bootstrap': 'QTMS Bootstrap - QoS Traffic Management System initialization',
+        'kdm': 'Key Distribution Management - Cryptographic key distribution protocol'
     };
 
     const protoLower = protocol.toLowerCase();

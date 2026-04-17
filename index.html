@@ -10,151 +10,238 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Saira+Semi+Condensed:wght@400;600;700&family=Spline+Sans:wght@400;500;600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <!-- External Libraries (Mapping & Diagrams) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 
 <body>
     <div class="app-shell">
+        <!-- ─── HEADER ────────────────────────────────────────── -->
         <header class="app-header">
-            <div class="brand">
-                <span class="brand-kicker">CDC / LAES Investigative Suite</span>
-                <h1>Signal Dossier</h1>
-                <p>Reconstruct multi-call narratives from raw carrier signaling in seconds. No upload. No cloud risk.
-                </p>
+            <div class="header-row-1">
+                <div class="header-brand">
+                    <div class="brand-mark">SD</div>
+                    <div class="brand-name">Signal Dossier</div>
+                </div>
+                <div class="header-divider"></div>
+                <div class="header-case">
+                    <div class="kicker">Case</div>
+                    <div class="case-line">
+                        <span class="case-name">OP. TERRAPIN</span>
+                        <span class="case-id">CASE-2026-0417-A</span>
+                        <span class="tag tag-ok">active</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <div class="search-pill">
+                        <span class="kbd">⌘K</span>
+                        <span class="search-hint">search numbers, IPs, cell IDs…</span>
+                    </div>
+                    <button class="btn-ghost" onclick="toggleSettings()">Cloud config</button>
+                    <button class="btn-ghost" onclick="window.print()">Export</button>
+                    <div class="avatar">AR</div>
+                </div>
+            </div>
+
+            <div class="header-row-2">
+                <nav class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
+                    <button class="tab-btn" onclick="switchTab('packetTab')">Packet</button>
+                    <button class="tab-btn" onclick="switchTab('callAnalysisTab')">Call Log</button>
+                    <button class="tab-btn" onclick="switchTab('towerTab')">Towers</button>
+                </nav>
+                <div class="target-chips" id="targetChips">
+                    <span class="kicker">Linked targets</span>
+                    <!-- chips populated by analyzer.js; static placeholders for now -->
+                    <button class="chip chip-active" data-target="primary">
+                        <span class="chip-dot"></span>Primary
+                    </button>
+                    <button class="chip" data-target="all">All</button>
+                </div>
             </div>
         </header>
 
-        <nav class="tabs">
-            <button class="tab-btn active" onclick="switchTab('analyzerTab')">Analyzer</button>
-            <button class="tab-btn" onclick="switchTab('towerTab')">Tower Management</button>
-            <button class="tab-btn" onclick="switchTab('packetTab')">Packet Analysis</button>
-            <button class="tab-btn" onclick="switchTab('callAnalysisTab')">Call Analysis</button>
-        </nav>
-        <main class="workspace">
-            <section class="panel-stack">
-                <div id="analyzerTab" class="tab-panel active">
-                    <div class="input-section">
-                        <h2>Paste CDC Data</h2>
-                        <p class="section-note">Supports T1.678/LAES attempts, IMS VoIP CII, SIP direct signal
-                            reporting, ccOpen/ccClose, and SMS/MMS.</p>
-                        <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here...
+        <!-- ─── STATUS STRIP ──────────────────────────────────── -->
+        <div class="status-bar">
+            <div class="status-group">
+                <span class="status-dot"></span>
+                <span class="status-muted">datasets</span>
+                <span id="statusCDC">CDC —</span>
+                <span class="status-sep">·</span>
+                <span id="statusPacket">Packet —</span>
+                <span class="status-sep">·</span>
+                <span id="statusCDR">CDR —</span>
+                <span class="status-sep">·</span>
+                <span id="statusTowers">Towers —</span>
+            </div>
+            <div class="status-group status-right">
+                <span><span class="status-muted">supabase</span> <span id="supabaseStatusText" class="status-ok">—</span></span>
+            </div>
+        </div>
 
-Example message types this tool can parse:
+        <!-- ─── WORKSPACE ─────────────────────────────────────── -->
+        <main class="workspace">
+            <!-- LEFT: pinned focus rail -->
+            <aside class="focus-rail" id="focusRail">
+                <div class="focus-card">
+                    <div class="kicker accent">Focus</div>
+                    <div class="focus-title" id="focusTitle">No call selected</div>
+                    <div class="focus-sub" id="focusSub">Paste CDC data or upload a CSV to begin.</div>
+
+                    <div id="focusStats" class="focus-stats" style="display:none;">
+                        <!-- filled by analyzer.js -->
+                    </div>
+
+                    <div class="focus-divider"></div>
+                    <div class="kicker">Ingest</div>
+                    <div class="ingest-mini">
+                        <button class="btn-primary btn-full" onclick="openIngest('analyzer')">Paste CDC data</button>
+                        <div class="ingest-row">
+                            <button class="btn-ghost btn-half" onclick="document.getElementById('packetFileInput').click()">Packet CSV</button>
+                            <button class="btn-ghost btn-half" onclick="document.getElementById('callFileInput').click()">calls.csv</button>
+                        </div>
+                        <div class="ingest-row">
+                            <button class="btn-ghost btn-half" onclick="document.getElementById('towerFileInput').click()">Tower CSV</button>
+                            <button class="btn-ghost btn-half" id="syncBtn" onclick="syncTowersFromCloud()">Sync cloud</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- RIGHT: panel stack per tab -->
+            <section class="panel-column">
+
+                <!-- Analyzer tab -->
+                <div id="analyzerTab" class="tab-panel active">
+                    <!-- Ingest collapsible (opens from focus rail too) -->
+                    <section class="bpanel" id="analyzerIngest" data-collapsed="false">
+                        <header class="bpanel-head" onclick="togglePanel('analyzerIngest')">
+                            <div class="bpanel-title-group">
+                                <span class="disclosure">▾</span>
+                                <div>
+                                    <div class="kicker">Ingest · Analyzer</div>
+                                    <h3>Paste CDC / LAES text</h3>
+                                </div>
+                            </div>
+                            <span class="bpanel-hint">T1.678 · IMS CII · SIP DSR · ccOpen/ccClose · SMS/MMS</span>
+                        </header>
+                        <div class="bpanel-body">
+                            <textarea id="cdcInput" placeholder="Paste your CDC/LAES messaging data here…
+
 - termAttempt / origAttempt (Call attempts)
 - IMS VoIP CII Version 3 (New format)
 - directSignalReporting (SIP signaling)
 - ccOpen / ccClose (Content channel)
 - SMS/MMS messages"></textarea>
-                        <div class="button-row">
-                            <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
-                            <button class="btn-secondary" onclick="clearAll()">Clear</button>
+                            <div class="button-row">
+                                <button class="btn-primary" onclick="analyzeCDC()">Analyze CDC Data</button>
+                                <button class="btn-ghost" onclick="clearAll()">Clear</button>
+                                <div class="spacer"></div>
+                                <div id="callSelectorContainer" style="display:none;">
+                                    <label for="callSelector" class="kicker">Event</label>
+                                    <select id="callSelector" onchange="switchCall(this.value)"></select>
+                                    <button class="btn-ghost" onclick="exportCSV()">Export CSV</button>
+                                </div>
+                            </div>
                         </div>
+                    </section>
+
+                    <div id="callDetails">
+                        <!-- analyzer.js injects results (summary, timeline, map, SIP flow, SMS) here -->
                     </div>
                 </div>
 
+                <!-- Tower tab -->
                 <div id="towerTab" class="tab-panel">
-                    <div class="input-section">
-                        <h2>Tower Database Management</h2>
-                        <p class="section-note">Manage your local tower CSV files and sync with the cloud database.</p>
-                        <div class="button-row">
-                            <input type="file" id="towerFileInput" accept=".csv" style="display: none;"
-                                onchange="handleTowerUpload(event)">
-                            <button class="btn-secondary"
-                                onclick="document.getElementById('towerFileInput').click()">Load Local CSV</button>
-                            <button class="btn-primary" id="syncBtn" onclick="syncTowersFromCloud()">Sync from Cloud</button>
-                            <button class="btn-secondary" id="uploadBtn" onclick="uploadTowersToCloud()"
-                                style="display: none;">Upload to Cloud</button>
-                            <button class="btn-ghost" onclick="toggleSettings()">Cloud Config</button>
+                    <section class="bpanel" data-accent="cyan">
+                        <header class="bpanel-head">
+                            <div class="bpanel-title-group">
+                                <span class="disclosure">▾</span>
+                                <div>
+                                    <div class="kicker">Tower database</div>
+                                    <h3>Manage local CSV & cloud sync</h3>
+                                </div>
+                            </div>
+                        </header>
+                        <div class="bpanel-body">
+                            <input type="file" id="towerFileInput" accept=".csv" style="display:none;" onchange="handleTowerUpload(event)">
+                            <div class="button-row">
+                                <button class="btn-ghost" onclick="document.getElementById('towerFileInput').click()">Load Local CSV</button>
+                                <button class="btn-primary" onclick="syncTowersFromCloud()">Sync from Cloud</button>
+                                <button class="btn-ghost" id="uploadBtn" onclick="uploadTowersToCloud()" style="display:none;">Upload to Cloud</button>
+                                <button class="btn-ghost" onclick="toggleSettings()">Cloud Config</button>
+                            </div>
+                            <div id="towerStatus" class="status-chip">No tower list loaded</div>
                         </div>
-                        <div id="towerStatus" class="status-chip">
-                            No tower list loaded
-                        </div>
-                    </div>
+                    </section>
                 </div>
 
+                <!-- Packet tab -->
                 <div id="packetTab" class="tab-panel">
-                    <div class="input-section">
-                        <h2>Packet Data Analysis - Pen Register</h2>
-                        <p class="section-note">Upload pen register CSV data to analyze IP addresses, identify services,
-                            and perform WHOIS lookups.</p>
-
-                        <div id="dbNotConnectedWarning" class="warning-chip" style="display: none;">
-                            ⚠ <strong>Database not connected:</strong> WHOIS lookups won't be cached. Configure Supabase
-                            in <strong>Tower Management → Cloud Config</strong> to enable caching and save API calls.
+                    <section class="bpanel" data-accent="warn">
+                        <header class="bpanel-head">
+                            <div class="bpanel-title-group">
+                                <span class="disclosure">▾</span>
+                                <div>
+                                    <div class="kicker">Packet · pen register</div>
+                                    <h3>Upload CSV to analyze IP / services / WHOIS</h3>
+                                </div>
+                            </div>
+                        </header>
+                        <div class="bpanel-body">
+                            <div id="dbNotConnectedWarning" class="warning-chip" style="display:none;">
+                                ⚠ <strong>Database not connected:</strong> WHOIS lookups won't be cached. Configure Supabase in <strong>Cloud Config</strong> to enable caching.
+                            </div>
+                            <input type="file" id="packetFileInput" accept=".csv" style="display:none;" onchange="handlePacketUpload(event)">
+                            <div class="button-row">
+                                <button class="btn-primary" onclick="document.getElementById('packetFileInput').click()">Upload Packet CSV</button>
+                                <button class="btn-ghost" onclick="clearPacketAnalysis()">Clear</button>
+                                <label class="inline-label">
+                                    <span class="kicker">Target</span>
+                                    <select id="packetTargetSelectCard" onchange="setPacketTargetFilter(this.value)"></select>
+                                </label>
+                            </div>
+                            <div id="packetStatus" class="status-chip">No packet data loaded</div>
                         </div>
-
-                        <div class="button-row">
-                            <input type="file" id="packetFileInput" accept=".csv" style="display: none;"
-                                onchange="handlePacketUpload(event)">
-                            <button class="btn-primary"
-                                onclick="document.getElementById('packetFileInput').click()">Upload Packet CSV</button>
-                            <button class="btn-secondary" onclick="clearPacketAnalysis()">Clear Results</button>
-                        </div>
-                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap;">
-                            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);">
-                                <span>Target:</span>
-                                <select id="packetTargetSelectCard" class="btn-secondary" style="padding: 6px 10px;"
-                                    onchange="setPacketTargetFilter(this.value)"></select>
-                            </label>
-                        </div>
-                        <div id="packetStatus" class="status-chip">
-                            No packet data loaded
-                        </div>
-                    </div>
+                    </section>
+                    <div id="packetResults"></div>
                 </div>
 
+                <!-- Call analysis tab -->
                 <div id="callAnalysisTab" class="tab-panel">
-                    <div class="input-section">
-                        <h2>Call Analysis - CSV Analytics</h2>
-                        <p class="section-note">Upload calls.csv to analyze call patterns, identify top contacts, visualize timelines, and extract insights from your call data.</p>
+                    <section class="bpanel" data-accent="cyan">
+                        <header class="bpanel-head">
+                            <div class="bpanel-title-group">
+                                <span class="disclosure">▾</span>
+                                <div>
+                                    <div class="kicker">Call log · CDR analytics</div>
+                                    <h3>Upload calls.csv</h3>
+                                </div>
+                            </div>
+                        </header>
+                        <div class="bpanel-body">
+                            <input type="file" id="callFileInput" accept=".csv" style="display:none;" onchange="handleCallCSVUpload(event)">
+                            <div class="button-row">
+                                <button class="btn-primary" onclick="document.getElementById('callFileInput').click()">Upload calls.csv</button>
+                                <button class="btn-ghost" onclick="clearCallAnalysis()">Clear</button>
+                                <label id="callTargetFilterContainer" class="inline-label" style="display:none;">
+                                    <span class="kicker">Target</span>
+                                    <select id="callTargetSelect" onchange="filterCallAnalysisByTarget(this.value)">
+                                        <option value="all">All Targets</option>
+                                    </select>
+                                </label>
+                                <label id="callContactSearchContainer" class="inline-label" style="display:none;">
+                                    <span class="kicker">Search</span>
+                                    <input type="text" id="callContactSearch" placeholder="phone or name…" oninput="searchCallContacts(this.value)">
+                                </label>
+                            </div>
+                            <div id="callStatus" class="status-chip">No call data loaded</div>
+                        </div>
+                    </section>
+                    <div id="callResults"></div>
+                </div>
 
-                        <div class="button-row">
-                            <input type="file" id="callFileInput" accept=".csv" style="display: none;"
-                                onchange="handleCallCSVUpload(event)">
-                            <button class="btn-primary"
-                                onclick="document.getElementById('callFileInput').click()">Upload calls.csv</button>
-                            <button class="btn-secondary" onclick="clearCallAnalysis()">Clear Results</button>
-                        </div>
-                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap;">
-                            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);" id="callTargetFilterContainer" style="display: none;">
-                                <span>Target:</span>
-                                <select id="callTargetSelect" class="btn-secondary" style="padding: 6px 10px;" onchange="filterCallAnalysisByTarget(this.value)">
-                                    <option value="all">All Targets</option>
-                                </select>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);" id="callContactSearchContainer" style="display: none;">
-                                <span>🔍 Search Contact:</span>
-                                <input type="text" id="callContactSearch" class="btn-secondary" style="padding: 6px 10px; min-width: 200px;" placeholder="Enter phone number or name..." oninput="searchCallContacts(this.value)">
-                            </label>
-                        </div>
-                        <div id="callStatus" class="status-chip">
-                            No call data loaded
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="results-container" id="resultsContainer">
-                <div id="callSelectorContainer" style="display: none; margin-bottom: 20px;">
-                    <label for="callSelector" style="font-weight: 600; margin-right: 10px;">Select Call /
-                        Event:</label>
-                    <select id="callSelector" onchange="switchCall(this.value)"
-                        style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 300px;"></select>
-                    <button class="btn-secondary" onclick="exportCSV()"
-                        style="padding: 10px 15px; font-size: 0.9rem; margin-left: 10px;">Export CSV</button>
-                </div>
-                <div id="callDetails">
-                    <!-- Results will be inserted here -->
-                </div>
-                <div id="packetResults" style="margin-top: 20px; display: none;">
-                    <!-- Packet analysis results will be displayed here -->
-                </div>
-                <div id="callResults" style="margin-top: 20px; display: none;">
-                    <!-- Call analysis results will be displayed here -->
-                </div>
             </section>
         </main>
     </div>
@@ -167,7 +254,22 @@ Example message types this tool can parse:
     <script src="ports-iana.js"></script>
     <script src="analyzer.js?v=2026-02-10-call-geo11"></script>
 
-    <!-- Cloud Settings Panel -->
+    <script>
+      // Minimal shims added by the redesign — safe no-ops if analyzer.js handles them.
+      function togglePanel(id) {
+        const p = document.getElementById(id);
+        if (!p) return;
+        const c = p.getAttribute('data-collapsed') === 'true';
+        p.setAttribute('data-collapsed', c ? 'false' : 'true');
+      }
+      function openIngest(tab) {
+        switchTab(tab === 'analyzer' ? 'analyzerTab' : 'packetTab');
+        const ta = document.getElementById('cdcInput');
+        if (ta) ta.focus();
+      }
+    </script>
+
+    <!-- Cloud Settings Modal (unchanged markup) -->
     <div id="cloudSettings" class="settings-modal" style="display: none;">
         <div class="settings-content">
             <h3>Cloud Configuration (Supabase)</h3>
@@ -181,7 +283,7 @@ Example message types this tool can parse:
             </div>
             <div class="settings-buttons">
                 <button class="btn-primary" onclick="saveCloudSettings()">Save & Connect</button>
-                <button class="btn-secondary" onclick="toggleSettings()">Close</button>
+                <button class="btn-ghost" onclick="toggleSettings()">Close</button>
             </div>
         </div>
     </div>
